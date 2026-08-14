@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`ROADMAP.md` rewritten from the tree instead of from the plan.** It described the package as
+  mid-v0.2.0 while `package.json` read 0.6.2, and omitted everything shipped since — cascade
+  release, the messaging seam, the system group tree. Now organised Done / In progress / Planned,
+  with shipped work carrying the real version it shipped in and unshipped work carrying only an
+  order, since a milestone number assigned in advance goes stale the moment the order changes.
+  Two items are stated as having **no code in the tree** rather than as in progress: ViewConfig +
+  data setup, and the simulation components and systems. The `ISimulationModel` seam is recorded as
+  a deliberate reorder — pulled ahead to settle the `Shared.GameLogic` question early — not as
+  work that happened by accident. A *Known debts* section names the never-executed test suite, the
+  MessagePipe and GameFoundation adapters that no test exercises, the empty
+  `Cuvara.DOTS.Editor` assembly, and the load-bearing `.meta` files. Net 13 lines shorter.
+
 ### Verified
 
 - **The package has now been compiled and run in a real Unity 6 Editor** (6000.3.9f1, URP project,

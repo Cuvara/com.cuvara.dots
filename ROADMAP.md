@@ -1,109 +1,96 @@
 # Roadmap
 
-Planned scope for `com.cuvara.dots`. Each entry states what it contains and why it belongs
-here; the out-of-scope section states what does not and why. This file is a plan, not a
-promise of dates.
+What is in `com.cuvara.dots` today, what is being built, and what is planned. **Written from the
+tree, not from the original plan** — an item is Done only if the code exists here.
+
+**Version labels:** shipped work carries the real version it shipped in, matching `package.json`
+and `CHANGELOG.md`. Unshipped work carries **no version label**, only an order, because a milestone
+number assigned in advance is a guess that goes stale the moment the order changes.
 
 ## Scope
 
-The package provides **hybrid** building blocks: simulation runs in ECS, visuals are
-GameObject/MonoBehaviour. It does not render entities. Consumers wire it up through
-**VContainer** DI, in the same style as the rest of the stack.
+**Hybrid** building blocks: simulation runs in ECS, visuals are GameObject/MonoBehaviour. The
+package does not render entities. Consumers wire it up through **VContainer**.
 
 Two rules constrain everything below.
 
-- **Standalone install.** The package must resolve and compile against its four pinned
-  dependencies alone — `com.unity.entities`, `com.unity.burst`, `com.unity.collections`,
-  `com.unity.mathematics`. Anything needing more lives in a separate assembly, gated by
-  `versionDefines` and `defineConstraints`, and is absent rather than broken when its
-  dependency is.
-- **Dependency direction.** `com.cuvara.dots` may depend on `com.cuvara.netcode`. The
-  reverse is forbidden, in every release. Netcode's `IEntityView` stays three methods.
+- **Standalone install.** The package resolves and compiles against its four pinned dependencies
+  alone — `com.unity.entities`, `com.unity.burst`, `com.unity.collections`, `com.unity.mathematics`.
+  Anything needing more lives in a separate assembly gated by `versionDefines` +
+  `defineConstraints`, and is absent rather than broken when its dependency is.
+  Verified by `Samples~/HybridViews`, which runs on the four alone.
+- **Dependency direction.** `com.cuvara.dots` may depend on `com.cuvara.netcode`. The reverse is
+  forbidden, in every release. Netcode's `IEntityView` stays three methods.
 
-## v0.2.0 — hybrid core
+## Done
 
-Asset loading first, then the entity/view link, then the data that configures both.
-
-| Feature | Status | Contents |
+| Feature | Shipped in | Contents |
 |---|---|---|
-| ViewProvisioning | **in progress** | Chunk-aware async acquisition of view prefabs over GameFoundation's `IAssetsManager` and `IObjectPoolManager`, refcounted, with prewarm and release. |
-| EntityViewLink + transform sync | **in progress** | Entity↔GameObject link component and side table, spawn/despawn lifecycle, `LocalTransform` → `Transform` sync each frame. |
-| ViewConfig + data setup | planned | ScriptableObject authoring (asset key, pool size, scale, offsets) converted to `IComponentData`, with a blob table for many-per-archetype and named archetype definitions. Runtime authoring, not subscene baking — consumers spawn from server snapshots at runtime. |
-| Simulation components and systems | planned | `Lifetime`, `Health`, `MoveToward`, `SpinSpeed`, `MoveData` with their `ISystem` counterparts. Decoupled from the demo singletons and from a hardcoded command-buffer system before they land here. |
+| Entity↔view link and transform sync | 0.2.0, reworked 0.4.0 | `EntityViewRequest` → `EntityViewLink` (+ cleanup component), managed `EntityViewRegistry` side table, spawn/despawn systems, per-frame `LocalToWorld` → `Transform` sync. Systems are `internal`; the group tree is the ordering contract. |
+| Chunk-aware view provisioning | 0.2.0, 0.5.0, 0.6.0 | `IViewAssetProvider` seam, `ChunkViewProvisioner` refcounting keys per chunk with prewarm/release. Release **cascades** through the ordinary despawn path (0.6.0) rather than stranding live views. |
+| Package-owned system group tree | 0.4.0, nested 0.6.1 | `NetcodeSystemGroup` → `ProvisioningSystemGroup`; `GameplaySystemGroup` (`MovementSystemGroup`, `LifecycleSystemGroup`, `DotsEndSimulationCommandBufferSystem`); `ViewSystemGroup` → `ViewLifecycleGroup` + `ViewTransformSyncGroup`. Groups outside the view branch are still empty. |
+| Optional `Shared.GameLogic` seam | 0.3.0 | `ISimulationModel` + `SimEntity`/`SimBounds`/`SimConstants`/`SimMoveResult` always compile; `Cuvara.DOTS.GameLogic` implements over the shared library, `PassiveSimulationModel` covers its absence. One `#if` in the whole package. Guarded by constants-parity and golden-vector tests. |
+| Messaging without a MessagePipe dependency | 0.5.0 | `IDotsPublisher<T>`/`IDotsSubscriber<T>` + `ViewSpawned`, `ViewDespawned`, `ChunkWarmed`, `ChunkReleased`, `ChunkCascadeReleased`. MessagePipe adapters live in `Cuvara.DOTS.DI` behind a version gate; publishing is a no-op when absent. |
+| GameFoundation asset provider | 0.2.0 | `IViewAssetProvider` over UniT's `IAssetsManager` + `IObjectPoolManager`. No loader, cache or pool of its own. |
+| Hybrid Views sample + scene | 0.6.2 | Bootstrap, self-contained primitive provider, orbiting entities, despawn/recycle, narrated chunk warm/release. Ready-to-play scene, pinned `.meta` GUIDs, troubleshooting notes. |
 
-No new loader, cache or pool is written. GameFoundation already owns both, the consuming
-project already registers them, and a second pool would contend with the first over the
-same prefabs.
+**Ordering decision, not an accident:** the `ISimulationModel` seam (0.3.0) was pulled ahead of the
+remaining v0.2.0-era items on purpose, to settle the `Shared.GameLogic` question early.
 
-## v0.3.0 — optional shared simulation, and the netcode adapter
+## In progress
 
-The server's simulation library, `Shared.GameLogic`, is *optional*. The package must be
-fully usable without it.
+Nothing. The last shipped version, 0.6.2, closed the asmdef fixes that made the package compile for
+the first time.
 
-- **The package owns the abstraction.** `ISimulationModel` plus the value types it speaks
-  (`SimEntity`, `SimBounds`, `SimConstants`, `float2`) live in `Cuvara.DOTS.Runtime` and
-  always compile. `Shared.GameLogic` is one implementation of that interface, never the
-  interface itself, so consumer code never names one of its types.
-- **Present.** `Cuvara.DOTS.GameLogic` delegates to `MovementSystem.TryMove` and
-  `CombatLogic`, converting `Vec2` ↔ `float2` and reading `GameConstants` into
-  `SimConstants` at construction. Constants are read, never copied as literals. Entity ids
-  stay `FixedString64Bytes` on the ECS side — `EntityState.Id`/`Type` are `string` and
-  cannot cross into Burst.
-- **Absent.** `PassiveSimulationModel` applies authoritative state as received and reports
-  `IsAuthoritative => false`. Consumer code compiles and runs unchanged; views spawn, sync
-  and despawn identically. What is lost is exactly: client-side prediction and its rewind
-  anchor, bit-exact agreement with the server integrator, and shared combat constants. The
-  package deliberately does not reimplement the movement rule — a second copy of it is the
-  divergence the shared-logic boundary exists to prevent, and a prediction that is silently
-  one ULP wrong is worse than no prediction.
-- **The switch.** `Cuvara.DOTS.GameLogic.asmdef` carries
-  `versionDefines: com.rpgmmo.shared-gamelogic → CUVARA_SHARED_GAMELOGIC` and
-  `defineConstraints: [CUVARA_SHARED_GAMELOGIC]`; the assembly simply is not built when the
-  dependency is absent. All conversion lives on this side, because `Shared.GameLogic` is
-  `noEngineReferences: true` and can never learn about `float2`. **One `#if` exists in the
-  whole package**, in the DI registration file, choosing which implementation to register.
-  Consumers call `builder.RegisterCuvaraDots(...)` and their `LifetimeScope` is identical
-  either way.
-- **Guard.** An edit-mode test, itself constrained to `CUVARA_SHARED_GAMELOGIC`, asserts
-  every `SimConstants` field equals its `GameConstants` source and drives the integrator
-  through the seam against the shared golden vectors.
+## Planned, in order
 
-Also in this release: the netcode `IEntityView` adapter (a separate assembly, gated on
-`com.cuvara.netcode`, arrow pointing one way only), and an ECS → MonoBehaviour event queue
-for one-shot request entities, held until a second consumer exists to shape its API.
+1. **ViewConfig + data setup** — **no code in the tree.** ScriptableObject authoring (asset key,
+   pool size, scale, offsets) converted to `IComponentData`, a blob table for many-per-archetype,
+   named archetype definitions. Runtime authoring, not subscene baking: consumers spawn from server
+   snapshots at runtime. This is the last piece of the original hybrid core, and until it lands a
+   consumer configures views by hardcoding keys.
+2. **Simulation components and systems** — **no code in the tree.** `Lifetime`, `Health`,
+   `MoveToward`, `SpinSpeed`, `MoveData` with their `ISystem` counterparts, decoupled from demo
+   singletons and from a hardcoded command-buffer system. `MovementSystemGroup` and
+   `LifecycleSystemGroup` exist and are empty, waiting for exactly these.
+3. **Netcode `IEntityView` adapter** — separate assembly gated on `com.cuvara.netcode`, arrow
+   pointing one way only. Plus an ECS → MonoBehaviour event queue for one-shot request entities,
+   held until a second consumer exists to shape its API.
+4. **2D** — tile data in ECS (chunked grid in a blob asset, plus lookup / neighbourhood /
+   line-of-sight queries) and an ECS sort key drained to `SpriteRenderer.sortingOrder` in the same
+   main-thread pass as transform sync. Sprite view pooling needs nothing new: a prefab with a
+   `SpriteRenderer` already flows through provisioning. Rendering stays on
+   `Tilemap`/`TilemapRenderer` GameObjects.
 
-## v0.4.0 — 2D
+## Known debts
 
-Pure ECS cannot render a sprite and cannot simulate a 2D collider: `com.unity.entities.graphics`
-is mesh-only and `com.unity.physics` is 3D. Hybrid is therefore *more* necessary in 2D than in
-3D, not less. Everything here sits on top of v0.2.0 and changes none of its design.
-
-| Feature | Verdict | Notes |
-|---|---|---|
-| Tile data in ECS | in the package | Chunked grid in a blob asset, plus queries (lookup, neighbourhood, line-of-sight). This is what pathfinding, AOI and tile-vs-entity tests need — none of which want a `Tilemap` component call per query. Rendering stays on `Tilemap`/`TilemapRenderer` GameObjects. Cost: an editor-side bake from an authored `Tilemap` into the blob, and a chunk size chosen for the consumer's access pattern rather than copied from Unity's internal one. |
-| Sprite view pooling | already covered | Not a new feature. A view prefab whose root carries a `SpriteRenderer` flows through ViewProvisioning unchanged; ViewConfig gains sorting-layer and order fields, and a 2D sample demonstrates it. |
-| Sorting / draw order | in the package | Sorting layers exist only on the GameObject side, so an ECS sort key (explicit, or derived from world Y) is computed in a system and drained to `SpriteRenderer.sortingOrder` in the same main-thread pass as transform sync. Cheap, and it is the one piece a 2D consumer would otherwise hand-write per project. |
-| 2D collision | **not in this package** | There is no DOTS 2D physics. The honest options are 3D `Unity.Physics` constrained to a plane, or `Physics2D` on the GameObject side; both are project decisions, not package ones. The package ships only grid queries over the tile blob, which is a broadphase over static tiles and not a physics engine. It will not pretend otherwise. |
-
-The tilemap and physics2d modules are built-in, so no extra package dependency is introduced
-by the parts that are in scope.
+- **The test suite has never been executed.** Eight test files exist and compile; no run has been
+  recorded. Until one is, "tested" means "written".
+- **The MessagePipe and GameFoundation adapters are unexercised by any test.** No test assembly
+  declares either dependency, so both are compile-checked only.
+- **`Cuvara.DOTS.Editor` contains only `PackageMarkerEditor.cs`** — the assembly exists to hold
+  editor tooling that has not been written.
+- **`.meta` files are load-bearing.** A git-URL install lands in `Library/PackageCache`, which Unity
+  treats as immutable and will not generate metas into; a new file without one is silently ignored
+  rather than erroring.
 
 ## Out of scope
 
-- **Entity rendering wrappers** over Entities.Graphics — `RenderMeshUtility`, `RenderMeshArray`,
-  `MaterialMeshInfo`. Visuals are GameObjects; the package never creates a rendered entity.
-- **A new asset loader, asset cache, or GameObject pool.** GameFoundation owns these.
-- **Wrappers over `SystemAPI` singleton access.** Unity's API is already the abstraction; a
-  wrapper adds version coupling and no capability.
-- **Scene bootstrap** — cameras, lights, ground planes. Demo scaffolding, and it belongs in a
-  sample.
-- **Snapshot merge, interpolation, transport, codec, entity-handle interning.**
-  `com.cuvara.netcode` owns them, and a second copy of the merge rule is precisely the
-  client/server divergence the shared-logic boundary exists to prevent.
+- **Entity rendering wrappers** over Entities.Graphics. Visuals are GameObjects; the package never
+  creates a rendered entity.
+- **A new asset loader, cache, or GameObject pool.** GameFoundation owns these, and a second pool
+  would contend with the first over the same prefabs.
+- **Wrappers over `SystemAPI` singleton access.** Unity's API is already the abstraction.
+- **Scene bootstrap** — cameras, lights, ground planes. That belongs in a sample.
+- **2D collision.** There is no DOTS 2D physics; 3D `Unity.Physics` on a plane or `Physics2D` on the
+  GameObject side are project decisions. The tile blob is a broadphase over static tiles, not a
+  physics engine, and will not pretend otherwise.
+- **Snapshot merge, interpolation, transport, codec, entity-handle interning.** `com.cuvara.netcode`
+  owns them; a second copy of the merge rule is the divergence the shared-logic boundary prevents.
 
 ## Measurement caveat
 
-Standalone Windows and Linux builds use Mono2x with managed stripping disabled. A green result
-there exercises neither IL2CPP nor the stripper, so it cannot validate AOT behaviour, `link.xml`
-preservation, or Burst codegen. Any performance or AOT claim in this repository must be backed by
-an Android or WebGL build, with stripping raised above the default Minimal for a stripping test.
+Standalone Windows and Linux builds use Mono2x with managed stripping disabled, so a green result
+there exercises neither IL2CPP nor the stripper and cannot validate AOT behaviour, `link.xml`
+preservation, or Burst codegen. Any performance or AOT claim must be backed by an Android or WebGL
+build, with stripping raised above the default Minimal.
