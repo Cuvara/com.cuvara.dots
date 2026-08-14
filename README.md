@@ -12,9 +12,11 @@ provisioning. Not yet compiled against a Unity Editor — see `CHANGELOG.md`.
 | `Runtime/` | `Cuvara.DOTS.Runtime` | no | View link components, registry, spawn/despawn/sync systems, provisioning interfaces |
 | `Runtime.VContainer/` | `Cuvara.DOTS.VContainer` | yes — `CUVARA_DOTS_VCONTAINER` | `RegisterDotsViews()` |
 | `Runtime.GameFoundation/` | `Cuvara.DOTS.GameFoundation` | yes — UniT + UniTask defines | `IViewAssetProvider` over `IAssetsManager` + `IObjectPoolManager` |
+| `Runtime.GameLogic/` | `Cuvara.DOTS.GameLogic` | yes — `CUVARA_SHARED_GAMELOGIC` | `ISimulationModel` over `Shared.GameLogic`, plus all `Vec2`↔`float2` conversion |
 | `Editor/` | `Cuvara.DOTS.Editor` | no | Editor-only tooling and inspectors |
 | `Tests/Runtime/` | `Cuvara.DOTS.Tests.Runtime` | no | Play-mode tests |
 | `Tests/Editor/` | `Cuvara.DOTS.Tests.Editor` | no | Edit-mode tests |
+| `Tests/Editor.GameLogic/` | `Cuvara.DOTS.Tests.GameLogic` | yes — `CUVARA_SHARED_GAMELOGIC` | Constants parity + golden vectors through the seam |
 
 The two optional assemblies are gated by asmdef `versionDefines` + `defineConstraints`, the same
 way `com.gdk.core` gates `GDK_VCONTAINER`. With VContainer absent, `Cuvara.DOTS.VContainer` is not
@@ -47,6 +49,11 @@ builder.RegisterDotsViews(viewRoot);
 // Warm everything a chunk needs, then drop it when the chunk unloads:
 await provisioner.PrewarmChunkAsync("chunk-12-4", new[] { "goblin", "torch" }, countPerKey: 8);
 provisioner.ReleaseChunk("chunk-12-4");   // keys another chunk still lists survive
+
+// Simulation seam — identical call sites with or without com.rpgmmo.shared-gamelogic:
+builder.RegisterSimulationModel();
+if (model.IsAuthoritative)          // false => no shared logic; do NOT predict
+    model.TryMove(in entity, input, dt, in bounds, out var predicted);
 
 // Give an entity a view:
 entityManager.AddComponentData(entity, new EntityViewRequest { ViewKey = "goblin" });

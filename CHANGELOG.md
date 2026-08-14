@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-14
+
+### Added
+
+- **Optional `Shared.GameLogic` seam.** `ISimulationModel` plus the value types it speaks in
+  (`SimEntity`, `SimBounds`, `SimConstants`, `SimMoveResult`) live in `Cuvara.DOTS.Runtime` with no
+  define guards at all. The package owns the abstraction; `Shared.GameLogic` is one implementation
+  behind it and never the interface. Consumer code is byte-identical whether or not
+  `com.rpgmmo.shared-gamelogic` is installed.
+- **`Cuvara.DOTS.GameLogic`** — optional assembly holding `SharedGameLogicSimulation`, which
+  delegates movement to `MovementSystem.TryMove` and combat to `CombatLogic.CalculateDamage` /
+  `InRange`, and the `Vec2`↔`float2` / `SimBounds`→`MapBounds` conversions. All conversion lives
+  here because it can only live here: `Shared.GameLogic.asmdef` is `noEngineReferences: true` and
+  can never learn what a `float2` is. Gated by `versionDefines` + `defineConstraints` on
+  `com.rpgmmo.shared-gamelogic`, so it is not compiled at all when the package is absent.
+- **`PassiveSimulationModel`** — the absent-dependency path. It applies authoritative state and
+  predicts nothing, reporting `IsAuthoritative == false` and `SimMoveResult.Unavailable`.
+- `RegisterSimulationModel()` in `Cuvara.DOTS.VContainer`, holding the **single `#if`** that decides
+  between the two implementations, driven by the asmdef `versionDefine` rather than a hand-set
+  Player Settings define — the `GDK_VCONTAINER` pattern from `com.gdk.core`.
+- Tests in a new `Cuvara.DOTS.Tests.GameLogic` assembly, itself constrained on
+  `CUVARA_SHARED_GAMELOGIC` so it only compiles when the dependency is present: field-by-field
+  parity of `SimConstants` against `GameConstants`, and the shared `movement.json` golden vectors
+  replayed **through the seam** and compared bit-for-bit.
+
+### Changed
+
+- `package.json` bumped to 0.3.0. Pinned Unity dependencies unchanged — `com.rpgmmo.shared-gamelogic`
+  is an optional integration, not a dependency.
+
+### Accepted limitations
+
+- **`PassiveSimulationModel` refuses rather than approximates.** It returns 0 damage, `false` for
+  `InRange` and an unchanged position. It does not re-derive the server's movement rule: that rule
+  is not "position += direction * speed * dt" — `MovementSystem.Integrate` splits the multiply into
+  separate float locals to deny an FMA contraction, and `Vec2.SqrMagnitude` casts every intermediate
+  because C# permits higher-precision evaluation and .NET's RyuJIT and Unity's Mono JIT choose
+  differently. A re-implementation would be one ULP wrong and drift silently. Callers must check
+  `IsAuthoritative`.
+- **`SimConstants.Unavailable` is all zeros**, not plausible defaults. With the shared package absent
+  there is no source of truth, and inventing one is the literal-copy trap in disguise.
+- **`SimEntity` carries no identity.** `EntityState.Id` / `.Type` are `string` and therefore unusable
+  in Burst or an `IComponentData`; identity stays ECS-side as a `FixedString64Bytes`. `SnapshotMerger`
+  (netcode owns it) and `ValidationLogic` (managed delegate over string keys, server-shaped) are
+  deliberately not exposed.
+- **The DI assembly is still named `Cuvara.DOTS.VContainer`**, not `Cuvara.DOTS.DI`, since it already
+  shipped in 0.2.0 — its root namespace is `Cuvara.DOTS.DI` and the registration lives there.
+- **Nothing here has been compiled.** No Unity Editor was available.
+
 ## [0.2.0] - 2026-08-14
 
 ### Added

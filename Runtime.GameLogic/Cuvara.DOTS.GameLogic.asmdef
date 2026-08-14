@@ -1,13 +1,10 @@
 {
-    "name": "Cuvara.DOTS.VContainer",
-    "rootNamespace": "Cuvara.DOTS.DI",
+    "name": "Cuvara.DOTS.GameLogic",
+    "rootNamespace": "Cuvara.DOTS.GameLogic",
     "references": [
         "Cuvara.DOTS.Runtime",
-        "Unity.Entities",
-        "Unity.Collections",
-        "Unity.Mathematics",
-        "VContainer",
-        "Cuvara.DOTS.GameLogic"
+        "Shared.GameLogic",
+        "Unity.Mathematics"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -16,14 +13,9 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "CUVARA_DOTS_VCONTAINER"
+        "CUVARA_SHARED_GAMELOGIC"
     ],
     "versionDefines": [
-        {
-            "name": "jp.hadashikick.vcontainer",
-            "expression": "",
-            "define": "CUVARA_DOTS_VCONTAINER"
-        },
         {
             "name": "com.rpgmmo.shared-gamelogic",
             "expression": "",
