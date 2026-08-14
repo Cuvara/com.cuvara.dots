@@ -53,8 +53,12 @@ split arriving at the one field that just started needing it.
   `WorldState.AckTick`, which netcode documents as "the reconciliation anchor for the prediction
   layer" and a predictor reads directly. Inventing one here, or inferring it from arrival order, would
   produce a number that looks authoritative and is not.
-- **Written for remotes too.** One `float3` per mirror entity, and it removes a "why does the local
-  one have this and remotes not" question a future reader would have to re-derive.
+- **Written for remotes too, and the reason is chunk layout.** Adding it only to predicted entities
+  would split local and remote mirrors into **different archetypes** — two sets of chunks, with every
+  query over mirror entities iterating both, in a package whose whole justification is chunk
+  iteration. A structural cost at query time on every system, to save one `float3` per entity.
+  Uniform keeps one archetype and pays 12 bytes. Recorded because "why do remotes carry this" is the
+  obvious instinct and splitting the archetype is the obvious, expensive fix for it.
 
 ### Tests
 

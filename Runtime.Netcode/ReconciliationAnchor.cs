@@ -24,10 +24,17 @@ namespace Cuvara.DOTS.Netcode
     /// prediction bug. Splitting the value out gives each component exactly one writer.
     /// </para>
     /// <para>
-    /// <b>Written for every replicated entity, not only predicted ones.</b> Uniform costs one
-    /// <see cref="float3"/> per mirror entity and removes a question — "why does the local one have
-    /// this and remotes do not" — whose answer would have to be re-derived every time someone reads
-    /// the code. Nothing consumes it for remotes today; nothing has to.
+    /// <b>Written for every replicated entity, not only predicted ones — and the reason is chunk
+    /// layout, not tidiness.</b> Adding this only to predicted entities would give local and remote
+    /// mirrors <i>different archetypes</i>. Two archetypes are two sets of chunks, and every query
+    /// over mirror entities then iterates both, in a package whose entire justification is chunk
+    /// iteration. That is a structural cost paid at query time by every system, to save one
+    /// <see cref="float3"/> per entity. Uniform keeps one archetype and pays 12 bytes.
+    /// </para>
+    /// <para>
+    /// So: nothing consumes this for remotes today and nothing has to. If you are reading this
+    /// because the redundancy looked wasteful — that instinct is right about the bytes and wrong
+    /// about the cost, and splitting the archetype is the expensive half.
     /// </para>
     /// <para>
     /// <b>Position only. There is deliberately no tick here.</b> A reconciliation anchor is a
