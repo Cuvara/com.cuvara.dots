@@ -5,6 +5,106 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-14
+
+### Added
+
+- **`Cuvara.DOTS.Netcode` — the `IEntityView` adapter.** With `com.cuvara.netcode` installed, server
+  snapshots drive ECS entities through this package's existing view pipeline. It is the piece that
+  makes the package usable by a client rather than only by a scene.
+  - `DotsEntityView` implements `Cuvara.Netcode.View.IEntityView` (the three methods; the interface is
+    not widened). Each replicated id becomes an entity carrying `NetworkEntity` (the wire id and
+    `IsLocal`), `NetworkEntityState` (newest authoritative hp), a `LocalTransform`/`LocalToWorld`
+    pair, and the `EntityViewRequest` + `ViewConfigRef` the spawn path already understands.
+  - `INetworkArchetypeResolver` and `PrefixArchetypeResolver` decide which archetype an id is shown
+    as. `SnapshotSpaceMapping` decides where the server's 2D plane lands in the world.
+  - `DotsNetcodeBootstrap.Install(world, view)` publishes `NetworkEntityViewReference` and creates
+    the internal drain system inside `NetcodeSystemGroup` — the group that shipped empty in 0.6
+    precisely so this could land without changing what a consumer's `[UpdateAfter]` means.
+  - Gated by `versionDefines` on `com.cuvara.netcode` + a matching `defineConstraints`, like
+    `Cuvara.DOTS.GameLogic` is for the shared logic. **The package still installs and compiles with
+    netcode absent**, and `Cuvara.DOTS.Runtime` keeps exactly its five Unity references — the netcode
+    dependency exists in the new assembly and nowhere else. The arrow is one-way: DOTS may reference
+    netcode, netcode never references DOTS.
+
+### Design notes
+
+- **`SetState` enqueues; it does not write components.** Three reasons, in order. (1) *Thread
+  affinity*: `WorldViewBinder.Tick` is called by the consumer, and the netcode's own guidance is to
+  drive world state from the socket thread — `EntityManager` writes from there are undefined
+  behaviour, not an exception, and the reference implementation is main-thread-only without saying
+  so. (2) *Structural changes belong at a declared point in the frame* rather than wherever the
+  caller happens to run, possibly mid-`SimulationSystemGroup`. (3) *Ordering*: one FIFO preserves
+  spawn → state → despawn.
+  The queue costs no view latency. `NetcodeSystemGroup` is in `InitializationSystemGroup`, so a drain
+  runs before `TransformSystemGroup` computes `LocalToWorld` and long before `PresentationSystemGroup`
+  runs `ViewSystemGroup` → `ViewLifecycleGroup` → `ViewTransformSyncGroup`. A snapshot enqueued before
+  frame N's initialization is an entity, a transform, a view and a *positioned* view within frame N.
+  A direct write cannot beat that and can lose to it: one landing after `TransformSystemGroup` gets a
+  stale `LocalToWorld` and spawns its view in the wrong place.
+- **The 2D → 3D mapping is caller-supplied.** The reference implementation wrote
+  `new float3(x, 0.5f, y)` inline, and that literal is two unrelated things fused: which plane the
+  server's coordinates live on (a property of the *world*, identical for every entity — now
+  `SnapshotSpaceMapping`, defaulting to `XZPlane`) and a half-height lift so a capsule's pivot sits on
+  the ground (a property of the *art*, different per archetype — already `ViewConfig.PositionOffset`,
+  and applied to the view instance rather than to the entity). Splitting them is strictly better than
+  the constant: gameplay maths keeps a 2D entity position, and only the visual is lifted. A
+  `ViewConfig` field was rejected because it would let two archetypes disagree about which axis is up.
+
+### Changed
+
+- `Runtime/AssemblyInfo.cs` grants `InternalsVisibleTo` to `Cuvara.DOTS.Tests.Netcode`, for
+  `ViewConfig.Configure` / `ViewArchetypeLibrary.Configure` — the same reason the other two grants
+  exist. The adapter's tests do **not** name a package system: they drive `NetcodeSystemGroup` and
+  `ViewSystemGroup`, so what they assert is the published ordering contract.
+
+### Not carried over from the reference implementation
+
+`Samples~/DOTSSample/DOTSEntityView.cs` in `com.cuvara.netcode` is one game's rules. What was left
+behind, and why:
+
+- **The `"enemy-"` id prefix** — kept as a *mechanism* (`PrefixArchetypeResolver`), dropped as a
+  *value*. The prefix and the archetype it names are constructor arguments.
+- **`Health { 30, 30 }` at spawn** — the wire already carries hp and maxHp, so the adapter writes the
+  real values instead of a literal. They land on `NetworkEntityState`; `Health` is opt-in
+  (`writeHealth: true`) because `Health` means "destroy at zero" in this package, and mirroring server
+  hp into it lets `HealthDeathSystem` destroy an entity the server is still listing. When opted in,
+  `Health` is added on the first *state* rather than at spawn, so no entity ever carries `Health{0,0}`
+  across a simulation tick.
+- **`AutoAttack { 0.3f, 10f, 1 }` and `PlayerCombatTag`/`EnemyTag`** — **no config equivalent exists,
+  and none was invented.** This package has no combat components beyond `Health`, and cooldown, range
+  and damage are game rules, not view configuration. A consumer that wants them adds them to entities
+  carrying `NetworkEntity`, from its own system.
+- **The eight-colour player palette and per-instance material creation** — **no config equivalent
+  exists.** `ViewConfig` carries a view key, pool size, scale, offsets and 2D sorting; it has no
+  colour, material or renderer field, and the view layer spawns pooled prefabs rather than building
+  `RenderMeshArray` entities. Per-player tinting is a consumer concern today. If it should become a
+  package concern, the honest shape is a colour field on `ViewConfig` plus something applying it in
+  `ViewLifecycleGroup` — that is a separate change with a separate justification.
+- **`GetEntityLabels` and the OnGUI overlay** — debug UI for a sample scene.
+- **`RenderMeshUtility` / `Unity.Entities.Graphics`** — the adapter drives the pooled-GameObject view
+  layer this package already has, so it needs no rendering dependency at all.
+
+### Tests
+
+`Tests/Editor.Netcode/` — 28 tests: the adapter end to end through the public groups (same-frame
+positioned view, the config-driven archetype, the mapping/offset split, despawn and re-entry, the
+duplicate-spawn and unknown-id guards, hp routing with and without `writeHealth`, full drain), the
+mapping maths, the resolver's ordering rules, and a reflection layout test asserting the drain system
+is internal, `[DisableAutoCreation]`, and two hops above `PresentationSystemGroup`.
+
+A separate test assembly, mirroring `Cuvara.DOTS.Tests.GameLogic`, rather than the existing ones:
+netcode-dependent tests in `Cuvara.DOTS.Tests.Runtime` would force that assembly to reference
+`com.cuvara.netcode`, which breaks the no-netcode install this release is built around.
+
+### Unverified
+
+**Nothing here has been compiled.** No Unity Editor was available — another workstream owned it — so
+this release is reviewed code, not built code. Specifically unverified: that the asmdef
+`versionDefines`/`defineConstraints` pair resolves as intended in a project with and without
+`com.cuvara.netcode`; that `SystemAPI.ManagedAPI.GetSingleton` works from this `ISystem` as it does in
+`EntityViewSpawnSystem`; and every one of the tests above.
+
 ## [0.7.0] - 2026-08-14
 
 ### Added
