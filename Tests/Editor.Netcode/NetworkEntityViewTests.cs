@@ -422,6 +422,103 @@ namespace Cuvara.DOTS.Tests.Netcode
         }
 
         [Test]
+        public void Anchor_IsPresentFromSpawn_AndTracksTheServerPosition()
+        {
+            // Present from spawn so a predictor attaching later never reads a default, and updated
+            // on every state so it is always "what the server last said".
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
+
+            Tick();
+            Assert.AreEqual(float3.zero, _entityManager.GetComponentData<ReconciliationAnchor>(Find("uuid-a")).Position);
+
+            view.SetState("uuid-a", 3f, 7f, 100, 100);
+            Tick();
+            Assert.AreEqual(new float3(3f, 0f, 7f), _entityManager.GetComponentData<ReconciliationAnchor>(Find("uuid-a")).Position);
+        }
+
+        [Test]
+        public void Anchor_IsWrittenForRemotesToo_NotOnlyForPredictedEntities()
+        {
+            // Uniform on purpose: one float3 per mirror entity, and no "why does the local one have
+            // this and remotes not" question for a future reader to re-derive.
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
+            view.SetState("uuid-e1", 1f, 2f, 30, 30);
+
+            Tick();
+
+            Assert.AreEqual(new float3(1f, 0f, 2f), _entityManager.GetComponentData<ReconciliationAnchor>(Find("uuid-e1")).Position);
+        }
+
+        [Test]
+        public void PredictedTransform_StopsTheTransformWrite_ButNotTheAnchor()
+        {
+            // The whole point of the split. With a predictor owning LocalTransform, the adapter must
+            // not also write it — that is two writers where the later one usually wins, and the
+            // entity snaps back on the frames the predictor does not run.
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-me", isLocal: true, type: PlayerType);
+            view.SetState("uuid-me", 1f, 1f, 100, 100);
+            Tick();
+
+            var entity = Find("uuid-me");
+            _entityManager.AddComponent<PredictedTransform>(entity);
+
+            // Stand in for a predictor having moved the entity this frame.
+            var predicted = new float3(50f, 0f, 50f);
+            var transform = _entityManager.GetComponentData<LocalTransform>(entity);
+            transform.Position = predicted;
+            _entityManager.SetComponentData(entity, transform);
+
+            view.SetState("uuid-me", 2f, 2f, 100, 100);
+            Tick();
+
+            Assert.AreEqual(predicted, _entityManager.GetComponentData<LocalTransform>(entity).Position,
+                "the adapter must not overwrite a transform something else owns");
+            Assert.AreEqual(new float3(2f, 0f, 2f), _entityManager.GetComponentData<ReconciliationAnchor>(entity).Position,
+                "but the authoritative value still lands, because that is what a predictor rewinds to");
+        }
+
+        [Test]
+        public void RemovingPredictedTransform_HandsTheTransformBack()
+        {
+            // A predictor that stops predicting — a spectate, a death — must not leave a transform
+            // nobody writes.
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-me", isLocal: true, type: PlayerType);
+            Tick();
+
+            var entity = Find("uuid-me");
+            _entityManager.AddComponent<PredictedTransform>(entity);
+            view.SetState("uuid-me", 9f, 9f, 100, 100);
+            Tick();
+            Assert.AreNotEqual(new float3(9f, 0f, 9f), _entityManager.GetComponentData<LocalTransform>(entity).Position);
+
+            _entityManager.RemoveComponent<PredictedTransform>(entity);
+            view.SetState("uuid-me", 4f, 5f, 100, 100);
+            Tick();
+
+            Assert.AreEqual(new float3(4f, 0f, 5f), _entityManager.GetComponentData<LocalTransform>(entity).Position);
+        }
+
+        [Test]
+        public void WithoutAPredictor_TheLocalEntityMovesExactlyAsBefore()
+        {
+            // The regression guard for the shortcut not taken: keying the skip off IsLocal instead of
+            // component presence would leave the local avatar frozen in every build that has no
+            // predictor — which is every build today.
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-me", isLocal: true, type: PlayerType);
+            view.SetState("uuid-me", 6f, 8f, 100, 100);
+
+            Tick();
+
+            Assert.AreEqual(new float3(6f, 0f, 8f), _entityManager.GetComponentData<LocalTransform>(Find("uuid-me")).Position);
+            Assert.AreEqual(new Vector3(6f, 0f, 8f), ViewOf("uuid-me").transform.position, "and its view followed");
+        }
+
+        [Test]
         public void QueueIsFullyDrained_EveryTick()
         {
             var view = (IEntityView)_view;

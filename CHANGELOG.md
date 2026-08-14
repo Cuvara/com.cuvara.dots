@@ -5,6 +5,74 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-14
+
+Prepares for prediction by giving the local player's transform a single writer, **before** a predictor
+exists. Nothing behaves differently today: with no `PredictedTransform` in the world, every entity is
+positioned by the adapter exactly as in 0.9.0.
+
+### Added
+
+- **`ReconciliationAnchor`** — the last authoritative position the server reported, in world space
+  (already through `SnapshotSpaceMapping`). Written for every replicated entity, at spawn and on every
+  state.
+- **`PredictedTransform`** — a marker something else adds to say "I own this entity's
+  `LocalTransform`". While present, the adapter writes the anchor and leaves the transform alone.
+
+### Why, since nothing is broken yet
+
+Once prediction owns the local player's per-frame position, prediction and this adapter would both
+write `LocalTransform` in the same frame — the adapter first in `InitializationSystemGroup`,
+prediction second in `SimulationSystemGroup`. **That works.** On every frame prediction runs, the
+later write wins and the result is correct. It fails only on the frames prediction does *not* run,
+where the avatar snaps back to the server position for one frame: intermittent, visible only as feel,
+local player only, and presenting as a bug in the release whose entire purpose is prediction. Every
+expensive defect in this project so far has been of that family — green, running, silently wrong — so
+this one is paid for in advance.
+
+The split is not a new mechanism. `NetworkEntityState` already separates "what the server said" from
+"what the client shows", for hp, and for the same reason. Position for a predicted entity is that same
+split arriving at the one field that just started needing it.
+
+### Design notes
+
+- **Named for what a predictor does with it.** Not `ServerPosition` or `NetworkPosition`: those name
+  the source and invite the obvious wrong move, someone deciding the local entity looks stale and
+  writing this into `LocalTransform`. A predictor *rewinds to and replays from* an anchor. The name is
+  meant to make the misuse read as wrong before it is run. Checked against every installed package
+  first — `Anchor` alone is taken (`Unity.Physics.PhysicsJointComponents`); `ReconciliationAnchor` and
+  `PredictedTransform` are free.
+- **Presence, not a flag**, matching `ViewConfigRef`'s reasoning: a `bool` has a default, and a
+  default meaning "predicted" or "not predicted" is a decision made silently for every entity that
+  never set it.
+- **Keyed off the tag, not off `NetworkEntity.IsLocal`.** That was the obvious shortcut and is wrong
+  in a way that bites immediately: with no predictor installed the local avatar would simply stop
+  moving. A test guards exactly that.
+- **No tick on the anchor, deliberately.** An anchor is a position *at a tick*, and this adapter does
+  not know the tick — `IEntityView.SetState` carries `(id, x, y, hp, maxHp)`. The tick is
+  `WorldState.AckTick`, which netcode documents as "the reconciliation anchor for the prediction
+  layer" and a predictor reads directly. Inventing one here, or inferring it from arrival order, would
+  produce a number that looks authoritative and is not.
+- **Written for remotes too, and the reason is chunk layout.** Adding it only to predicted entities
+  would split local and remote mirrors into **different archetypes** — two sets of chunks, with every
+  query over mirror entities iterating both, in a package whose whole justification is chunk
+  iteration. A structural cost at query time on every system, to save one `float3` per entity.
+  Uniform keeps one archetype and pays 12 bytes. Recorded because "why do remotes carry this" is the
+  obvious instinct and splitting the archetype is the obvious, expensive fix for it.
+
+### Tests
+
+44 in `Tests/Editor.Netcode/` (was 39). Five new: the anchor present from spawn and tracking every
+state; the anchor written for remotes; `PredictedTransform` suppressing the transform write while the
+anchor still lands; removing the tag handing the transform back; and — the guard for the shortcut not
+taken — the local entity moving exactly as before when no predictor exists.
+
+### Unverified
+
+**Not compiled.** Everything 0.9.0 lists, plus: `EntityManager.HasComponent<PredictedTransform>` per
+entity per state is one lookup on the same path that already calls `HasComponent<Health>`, so it is no
+new shape — but it is unmeasured, and no performance claim is made for it.
+
 ## [0.9.0] - 2026-08-14
 
 Follows `com.cuvara.netcode` 0.4.0, which added the server's entity kind to `IEntityView.Spawn`. The
