@@ -27,7 +27,7 @@ namespace Cuvara.DOTS.Samples.NetworkedPrediction
         public PrimitiveViewProvider(Transform root)
         {
             _root = root;
-            _kinds = new Dictionary<string, (PrimitiveType, Color, float)>
+            _kinds = new Dictionary<string, (PrimitiveType Shape, Color Colour, float Scale)>
             {
                 ["player-local"] = (PrimitiveType.Capsule, new Color(0.2f, 0.8f, 1f), 1.2f),
                 ["player-remote"] = (PrimitiveType.Capsule, new Color(0.9f, 0.9f, 0.9f), 1f),
@@ -88,7 +88,12 @@ namespace Cuvara.DOTS.Samples.NetworkedPrediction
 
         private GameObject Create(string key)
         {
-            var kind = _kinds.TryGetValue(key, out var k) ? k : (PrimitiveType.Cube, Color.magenta, 1f);
+            // The fallback is spelled with element names too: an unnamed tuple as the other ternary
+            // operand drops the names from the common type, and the result only fails at the use
+            // site with "does not contain a definition for 'Shape'".
+            var kind = _kinds.TryGetValue(key, out var k)
+                ? k
+                : (Shape: PrimitiveType.Cube, Colour: Color.magenta, Scale: 1f);
             var instance = GameObject.CreatePrimitive(kind.Shape);
             instance.name = key;
             instance.transform.SetParent(_root, false);

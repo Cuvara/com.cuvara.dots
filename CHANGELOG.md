@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exists to prevent, and neither writing is a frozen avatar. Toggling **Prediction Enabled** flips it,
   which is the A/B this sample is for.
 
+### Changed — an API gap the sample exposed
+
+`ViewConfig.Configure` and `ViewArchetypeLibrary.Configure` are **public**. Both docstrings already
+said they were "for tests and for code that generates configs" while being `internal`, so no consumer
+could ever be the second kind of caller. Building this sample is what surfaced the contradiction: a
+package whose whole premise is spawning from **server snapshots at runtime** must let a consumer
+assemble a catalog without authored assets, and the fields are `[SerializeField] private`, so there is
+no other route outside the Editor.
+
+Additive — nothing that compiled before stops compiling. It is also the second time a sample has paid
+for itself before running: the first was catching that `Samples~` compiles nowhere at all.
+
 ### Samples are now compiled by CI
 
 **`Samples~/` is excluded from Unity import, so a sample compiles nowhere by default.**
