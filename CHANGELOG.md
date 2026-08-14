@@ -5,7 +5,23 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.3] - 2026-08-14
+
+### Documentation
+
+- **The test suite has now run in a consuming project, and passes.** *Known debts* said no test in
+  this package had ever executed — true when written, false now. Measured: EditMode **205/205**, of
+  which **66 belong to this package** (the project alone was 139 before its assemblies existed);
+  PlayMode **10/10**; still 205/205 after the package became a git subtree, with six
+  `Cuvara.DOTS.Tests.*` files in `Library/ScriptAssemblies`.
+- **The `testables` requirement stays documented, because it is still load-bearing.** It was found
+  with a git-URL install, but the assemblies are built through `testables` even now that the package
+  is embedded — so it is not a `PackageCache`-only quirk. The remaining debt in this area is
+  narrower and unchanged: no test references `Cuvara.DOTS.DI` or `Cuvara.DOTS.GameFoundation`, so
+  the MessagePipe and GameFoundation adapters are compile-checked only.
+- Version bumped to 0.6.3 so the tag carrying these docs matches the manifest. Documentation only —
+  no runtime, test or asmdef change.
+
 
 ### Documentation
 
