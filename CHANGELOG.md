@@ -5,6 +5,60 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-14
+
+### Added
+
+- **`ReconciliationAnchor.ServerPosition`** (`float2`) — the server's own `(x, y)`, stored exactly as
+  `IEntityView.SetState` delivered it, before `SnapshotSpaceMapping` touches it.
+
+  ```csharp
+  public struct ReconciliationAnchor : IComponentData
+  {
+      public float3 Position;        // world space — what LocalTransform wants
+      public float2 ServerPosition;  // verbatim (x, y) — what a predictor rewinds to
+  }
+  ```
+
+**The world-space field could not do this job, and 0.10.0 claimed it could.** That release said the
+anchor was "already through `SnapshotSpaceMapping`, so it needs no further conversion" — true for
+writing `LocalTransform`, which was the only use then, and false for feeding a predictor. The shared
+simulation clamps against map bounds expressed in **server** coordinates, and
+`LocalMovePredictor.Reconcile` takes a server-space `Vec2` for that reason. A predictor handed only
+the world-space value has to get back, and `SnapshotSpaceMapping` has `ToWorld` with no inverse.
+
+**Adding an inverse was the rejected option.** `dot(p - Origin, Right)` is one line, and a float round
+trip through a projection is **not bit-exact**: the recovered value differs in the last place, replay
+integrates from a position the server never held, and the outcome is sub-ULP drift in the one system
+whose entire justification is bit-exactness — most likely diagnosed as FMA contraction, in a
+different package, by someone who never saw the inverse. Eight bytes per mirror entity removes the
+possibility instead of making it unlikely. `SnapshotSpaceMapping` still has no inverse on purpose:
+adding one would put the trap back within reach.
+
+The settling argument is the anchor's own docstring — it exists as *"the value a predictor rewinds
+to"*, and a predictor rewinds in the space it simulates in.
+
+At spawn `ServerPosition` is `float2.zero` rather than a mapped value, which agrees with `Position`
+being `mapping.Origin`: both say "the server has said nothing yet".
+
+### Changed
+
+- CI's netcode row now installs **v0.6.0** and the adapter floor is **47** (was 44).
+
+### Tests
+
+47 in `Tests/Editor.Netcode/`. Three new: the raw field carried verbatim alongside the mapped one;
+the raw field unaffected by a hostile mapping with a `1e7` origin offset — the case where a round trip
+would lose precision, asserted to prove the field does not depend on the mapping at all; and both
+fields agreeing at spawn. A fourth existing test now also asserts `ServerPosition` survives while
+`PredictedTransform` suppresses the transform write, which is the exact combination a predictor runs in.
+
+### Corrected from 0.9.0
+
+`"[0.4.0,)"` was named as the fallback if the bare `versionDefines` expression did not work. It is
+**invalid syntax** — Unity throws `ExpressionNotValidException`. The bare `"0.4.0"` form is correct
+and means `>=`, confirmed in CI in both directions and in the Unity project.
+
 ## [0.11.0] - 2026-08-14
 
 CI/CD, for the first time. This repository had no `.github/` at all.
