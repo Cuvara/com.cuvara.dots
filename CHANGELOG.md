@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0] - 2026-08-14
 
-### Added
+CI/CD, for the first time. This repository had no `.github/` at all.
+
+### Added — delivery
+
+- **`release.yml`**, driven by a `v*` tag and **only** by a tag. No branch trigger: `npm publish`
+  cannot be undone, and a bad version can only be superseded, never withdrawn. Pushing the tag is the
+  last human gate before a permanent artifact exists.
+  - **`Verify package.json version matches tag`**, a hard `exit 1`. Content checked against label by
+    machine — the defect class that has cost this workspace the most.
+  - Release notes are `awk`-extracted from the `## [VERSION]` CHANGELOG heading, which makes the
+    CHANGELOG load-bearing rather than decorative: a missing or misspelled heading ships empty notes.
+    A warning fires when the extraction comes back empty.
+  - **`publish` job**, `needs: release`, publishing **`@cuvara/dots`** to GitHub Packages. The UPM
+    name in `package.json` is `com.cuvara.dots`; GitHub Packages requires an npm scope, so the name is
+    rewritten at publish time only and never committed. The rewrite asserts the expected input name
+    first, so a rename upstream fails the publish instead of silently publishing something else.
+- **`release-reminder.yml`** — never tags, never publishes; only notices that `main` carries an
+  untagged version. Three states: tag on this commit (notice), tag elsewhere so commits since are
+  unreleased (warning), no tag (warning with the exact commands). Needs `fetch-depth: 0`; a shallow
+  fetch has no tags and would make every version look untagged. **It matters more here than in
+  netcode**: the consuming project takes this package as a git *subtree*, so nothing downstream breaks
+  when a version goes untagged and nothing downstream notices either.
+
+**On publishing at all**: the project consumes this package as a subtree, so a registry artifact has
+no current consumer. That was raised and overruled — publishing is wanted, and the argument is
+recorded here rather than re-litigated. The consequence is what the gate section is about: publishing
+turns every tag into a permanent artifact, so the test floors stop being hygiene and become the only
+thing between an untested commit and an immutable version.
+
+### Added — the gate
 
 - **CI, for the first time.** This repository had no `.github/` at all. That was *honest* — a
   repository with no checks cannot mislead anyone — but it meant every verification the package ever
@@ -38,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite's own `total`/`passed` attributes, because those vary across Unity and NUnit versions and a
   missing attribute reads as zero — indistinguishable from the failure being checked for. A
   non-passing case fails the run independently of any floor.
+- **`.github/scripts/test_assert_test_floors.py`** — 11 self-tests for the floor script, run in
+  `validate`, no Unity needed. The gate is a program and it was wrong once; case 7 is the regression
+  test for the `.dll`-suffix bug specifically, and one case asserts that a spec written `Foo.dll` is
+  **not** silently accepted, because normalisation happens on one side only — a spec that can be
+  written two ways will be written both ways.
 - **`.github/scripts/check_metas.py`** — every Unity-visible tracked file and folder must have a
   committed `.meta`. Same failure family: a missing `.meta` disabled parts of this package for seven
   releases without failing anything.
