@@ -174,12 +174,29 @@ jobs:
         with:
           path: package
 
-      # VContainer is installed here because com.cuvara.netcode 0.4.0 needs it to
-      # compile at all: Cuvara.Netcode.Runtime.asmdef references VContainer with
-      # no defineConstraint and no package.json dependency on it, so the package
-      # does not build standalone. Reported upstream. Installing it is legitimate
-      # for this job — the consuming project has VContainer — but it is a
-      # workaround for someone else's defect, not a property of this package.
+      # TWO PACKAGES HERE ARE WORKAROUNDS FOR com.cuvara.netcode 0.4.0, NOT
+      # DEPENDENCIES OF THIS ONE. Both are undeclared dependencies of netcode that
+      # a rich host project happens to satisfy, so they are invisible in the Editor
+      # and only appear in a minimal project like this one:
+      #
+      #   jp.hadashikick.vcontainer
+      #     Cuvara.Netcode.Runtime.asmdef lists VContainer in `references` with no
+      #     defineConstraint gate and no package.json dependency. Without it the
+      #     package does not compile: CS0246 from inside netcode.
+      #
+      #   org.nuget.system.runtime.compilerservices.unsafe
+      #     netcode ships Runtime/Plugins/Google.Protobuf.dll, which needs
+      #     System.Runtime.CompilerServices.Unsafe, which netcode does not ship and
+      #     does not depend on. Without it the failure is silent and cascading:
+      #     Google.Protobuf does not load -> Cuvara.Netcode.Runtime does not load ->
+      #     Cuvara.DOTS.Netcode does not load -> Cuvara.DOTS.Tests.Netcode does not
+      #     load -> 44 tests do not run, and the runner still exits 0. The real
+      #     project masks it with four separate providers (com.gdk.core, Burst, a
+      #     NuGet folder, and this package via R3).
+      #
+      # Both reported upstream. Installing them is legitimate for this job — the
+      # consuming project has both — but they are someone else's defects, and this
+      # comment exists so nobody later reads them as dots dependencies.
       - name: Bootstrap test project
         run: |
           mkdir -p Assets ProjectSettings Packages
@@ -191,6 +208,7 @@ jobs:
               "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.4.0",
               "com.cysharp.unitask": "2.5.10",
               "jp.hadashikick.vcontainer": "1.16.8",
+              "org.nuget.system.runtime.compilerservices.unsafe": "6.0.0",
               "com.unity.entities": "1.4.8",
               "com.unity.burst": "1.8.30",
               "com.unity.collections": "2.6.8",
@@ -201,7 +219,7 @@ jobs:
               {
                 "name": "OpenUPM",
                 "url": "https://package.openupm.com",
-                "scopes": ["com.cysharp", "jp.hadashikick"]
+                "scopes": ["com.cysharp", "jp.hadashikick", "org.nuget"]
               }
             ],
             "testables": ["com.cuvara.dots"]

@@ -137,8 +137,12 @@ def main(argv):
         if not ok:
             if op == ">=" and actual == 0:
                 failures.append(
-                    f"{assembly} ran 0 test cases but {expected} were required — the assembly was "
-                    "almost certainly compiled out by an unsatisfied defineConstraint, not merely emptied"
+                    f"{assembly} ran 0 test cases but {expected} were required. Two causes look "
+                    "identical from here and both are silent: (a) an unsatisfied defineConstraint "
+                    "compiled the assembly out, or (b) it compiled and Unity refused to LOAD it — "
+                    "grep the editmode/playmode log for \"will not be loaded due to errors\", which "
+                    "cascades from the first broken reference and takes every dependent assembly "
+                    "with it"
                 )
             else:
                 failures.append(f"{assembly} ran {actual} test case(s), required {op} {expected}")
