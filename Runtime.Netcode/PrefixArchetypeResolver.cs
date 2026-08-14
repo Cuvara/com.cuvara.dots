@@ -15,6 +15,16 @@ namespace Cuvara.DOTS.Netcode
     /// type at all writes its own <see cref="INetworkArchetypeResolver"/> instead.
     /// </para>
     /// <para>
+    /// <b>This class is a workaround, and it has a named exit.</b> Inferring an entity's kind from
+    /// the shape of its id is not something anyone would design; it exists only because
+    /// <c>IEntityView.Spawn</c> takes <c>(id, isLocal)</c> and the snapshot's
+    /// <c>ResolvedEntity.Type</c> is not forwarded through <c>WorldViewBinder</c> — see
+    /// <see cref="INetworkArchetypeResolver"/>. If a later <c>com.cuvara.netcode</c> release does
+    /// forward the type, the right move is a resolver over <c>Type</c> and the deletion of this
+    /// class, not the addition of more prefix rules to it. Treat a growing rule list as the signal
+    /// that the seam upstream is the thing to fix.
+    /// </para>
+    /// <para>
     /// Rules are matched <b>in the order given</b>, first match wins, so a caller listing
     /// <c>"enemy-elite-"</c> before <c>"enemy-"</c> gets what it asked for. Longest-prefix-wins was
     /// rejected: it makes the outcome depend on a comparison the caller cannot see in the list it

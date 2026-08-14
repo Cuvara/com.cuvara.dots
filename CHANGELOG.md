@@ -64,7 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 behind, and why:
 
 - **The `"enemy-"` id prefix** — kept as a *mechanism* (`PrefixArchetypeResolver`), dropped as a
-  *value*. The prefix and the archetype it names are constructor arguments.
+  *value*. The prefix and the archetype it names are constructor arguments. It is still a workaround:
+  `IEntityView.Spawn` takes `(id, isLocal)`, and the snapshot's `ResolvedEntity.Type` is not forwarded
+  through `WorldViewBinder`, so the id is the only signal a view has. `INetworkArchetypeResolver` is
+  the named exit — if a later `com.cuvara.netcode` forwards the type, the move is a resolver over
+  `Type` and the deletion of `PrefixArchetypeResolver`, not more prefix rules.
 - **`Health { 30, 30 }` at spawn** — the wire already carries hp and maxHp, so the adapter writes the
   real values instead of a literal. They land on `NetworkEntityState`; `Health` is opt-in
   (`writeHealth: true`) because `Health` means "destroy at zero" in this package, and mirroring server
