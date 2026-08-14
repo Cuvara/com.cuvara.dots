@@ -5,6 +5,28 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Simulation components and systems** — `TimeToLive`, `Health`, `MoveToward`, `SpinSpeed`, `MoveData`
+  as `IComponentData`, each with an `internal` Bursted `ISystem` in the groups that were declared
+  empty for them: `MoveTowardSystem` → `MoveBounceSystem` → `SpinSystem` in `MovementSystemGroup`,
+  `HealthDeathSystem` → `TimeToLiveSystem` in `LifecycleSystemGroup`, every position in the chain
+  written down rather than left to Entities' fallback. `DotsSimulationBootstrap.InstallSimulationSystems(World)`
+  installs them; it is separate from the view bootstrap because an entity that moves, spins and
+  expires needs no GameObject, so the simulation half must not require an `IViewAssetProvider`.
+  Three couplings from the reference implementations were removed rather than carried across: the
+  game-specific enemy tag and the stats singleton that `HealthDeathSystem` wrote, and Unity's
+  `EndSimulationEntityCommandBufferSystem` — both destroying systems now use the package's own
+  buffer, which plays back before the transform systems so no view is ever synced against an entity
+  that died this frame. `MoveToward` gains a `StopDistance` field in place of the reference's
+  hardcoded 0.1-unit arrival epsilon, which is a tuning value for one game's scale rather than a
+  constant a shared package may impose. The countdown component is `TimeToLive` rather than the
+  reference's `Lifetime`: that name is ambiguous against `VContainer.Lifetime` in any file importing
+  both, which broke `Cuvara.DOTS.DI` — a common word in a shared assembly will collide again. Covered by `SimulationSystemsTests` (play mode), which ticks
+  `GameplaySystemGroup` rather than individual systems so the shipped ordering is what is asserted.
+
 ## [0.6.3] - 2026-08-14
 
 ### Documentation
