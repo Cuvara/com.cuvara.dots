@@ -1,3 +1,4 @@
+using Cuvara.DOTS.Configuration;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -20,20 +21,31 @@ namespace Cuvara.DOTS.Views
     /// scale the views use. A non-uniform or sheared transform would not survive that, and this
     /// deliberately does not pretend otherwise: <see cref="ViewTransformSample"/> carries one float.
     /// </para>
+    /// <para>
+    /// The <see cref="ViewTransformOffset"/> is composed in here rather than applied on the managed
+    /// side: this is the Bursted half, and the managed drain should stay a flat write. The offset is
+    /// re-applied every frame because the sync overwrites the GameObject's transform every frame —
+    /// applying it once at spawn would last exactly one frame.
+    /// </para>
     /// </remarks>
     [BurstCompile]
     internal partial struct CollectViewTransformsJob : IJobEntity
     {
         public NativeList<ViewTransformSample>.ParallelWriter Samples;
 
-        private void Execute(in EntityViewLink link, in LocalToWorld transform)
+        private void Execute(in EntityViewLink link, in LocalToWorld transform, in ViewTransformOffset offset)
         {
+            // Position offset is rotated by the entity's rotation, so it is a local offset ("half a
+            // metre in front of the entity") rather than a world one, which is what an art offset
+            // authored against a prefab means.
+            var rotation = transform.Rotation;
+
             Samples.AddNoResize(new ViewTransformSample
             {
                 ViewId = link.ViewId,
-                Position = transform.Position,
-                Rotation = transform.Rotation,
-                Scale = math.length(transform.Value.c0.xyz),
+                Position = transform.Position + math.mul(rotation, offset.Position),
+                Rotation = math.mul(rotation, offset.Rotation),
+                Scale = math.length(transform.Value.c0.xyz) * offset.Scale,
             });
         }
     }
