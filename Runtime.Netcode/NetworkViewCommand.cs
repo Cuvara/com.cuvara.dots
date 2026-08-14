@@ -33,6 +33,9 @@ namespace Cuvara.DOTS.Netcode
 
         public FixedString64Bytes Id;
 
+        /// <summary>Server entity kind, for <c>NetworkEntity.Type</c>. Spawn only.</summary>
+        public FixedString32Bytes Type;
+
         public bool IsLocal;
 
         /// <summary>Config table index resolved at enqueue time, or -1 when the entity has no config.</summary>

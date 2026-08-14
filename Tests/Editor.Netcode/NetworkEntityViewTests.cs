@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Cuvara.DOTS.Configuration;
 using Cuvara.DOTS.Groups;
 using Cuvara.DOTS.Netcode;
@@ -25,18 +26,27 @@ namespace Cuvara.DOTS.Tests.Netcode
     /// </para>
     /// <para>
     /// The three <c>IEntityView</c> methods are called directly, in the order
-    /// <c>WorldViewBinder.Tick</c> calls them (spawn, then state, then despawn-by-absence), rather
-    /// than through the binder itself. The binder needs <c>WorldState</c>, which needs
-    /// <c>Shared.GameLogic</c> — a second optional dependency this assembly would then have to be
-    /// constrained on, to test a class that is not ours. What is ours is the adapter's response to
-    /// that call sequence.
+    /// <c>WorldViewBinder.Tick</c> calls them, rather than through the binder itself. The binder
+    /// needs <c>WorldState</c>, which needs <c>Shared.GameLogic</c> — a second optional dependency
+    /// this assembly would then have to be constrained on, to test a class that is not ours. What is
+    /// ours is the adapter's response to that call sequence.
+    /// </para>
+    /// <para>
+    /// <b>The ids here deliberately carry no meaning.</b> The mob's id is <c>"uuid-e1"</c>, not
+    /// <c>"enemy-1"</c>, and one test spawns a <i>player</i> whose id is literally
+    /// <c>"enemy-9"</c>. Before netcode 0.4.0 the second case was unrepresentable and the first
+    /// would have resolved to a player. Ids that no longer encode kind are how these tests assert
+    /// that nothing reads them for kind any more.
     /// </para>
     /// </remarks>
     public sealed class NetworkEntityViewTests
     {
         private const string LocalArchetype = "player-local";
         private const string RemoteArchetype = "player-remote";
-        private const string EnemyArchetype = "goblin";
+        private const string MobArchetype = "goblin";
+
+        private const string PlayerType = "player";
+        private const string MobType = "mob";
 
         private World _world;
         private EntityManager _entityManager;
@@ -45,7 +55,7 @@ namespace Cuvara.DOTS.Tests.Netcode
         private ViewArchetypeLibrary _library;
         private ViewConfig _localConfig;
         private ViewConfig _remoteConfig;
-        private ViewConfig _enemyConfig;
+        private ViewConfig _mobConfig;
         private DotsEntityView _view;
 
         [SetUp]
@@ -65,14 +75,14 @@ namespace Cuvara.DOTS.Tests.Netcode
 
             // The half-height lift the reference implementation baked into its (x, 0.5f, y) literal,
             // authored where it belongs: on the art, not on the world.
-            _enemyConfig = ScriptableObject.CreateInstance<ViewConfig>();
-            _enemyConfig.Configure("goblin", uniformScale: 0.8f, position: new Vector3(0f, 0.5f, 0f));
+            _mobConfig = ScriptableObject.CreateInstance<ViewConfig>();
+            _mobConfig.Configure("goblin", uniformScale: 0.8f, position: new Vector3(0f, 0.5f, 0f));
 
             _library = ScriptableObject.CreateInstance<ViewArchetypeLibrary>();
             _library.Configure(
                 new ViewArchetypeLibrary.Entry { Name = LocalArchetype, Config = _localConfig },
                 new ViewArchetypeLibrary.Entry { Name = RemoteArchetype, Config = _remoteConfig },
-                new ViewArchetypeLibrary.Entry { Name = EnemyArchetype, Config = _enemyConfig });
+                new ViewArchetypeLibrary.Entry { Name = MobArchetype, Config = _mobConfig });
 
             _catalog = new ViewConfigCatalog();
             _catalog.Build(_library);
@@ -90,14 +100,20 @@ namespace Cuvara.DOTS.Tests.Netcode
             Object.DestroyImmediate(_library);
             Object.DestroyImmediate(_localConfig);
             Object.DestroyImmediate(_remoteConfig);
-            Object.DestroyImmediate(_enemyConfig);
+            Object.DestroyImmediate(_mobConfig);
             DotsViewBootstrap.Uninstall(_world);
             _world.Dispose();
         }
 
         private DotsEntityView NewView(bool writeHealth = false) => new DotsEntityView(
             _catalog,
-            new PrefixArchetypeResolver(LocalArchetype, RemoteArchetype, new PrefixArchetypeResolver.Rule("enemy-", EnemyArchetype)),
+            // (localArchetype, unknownArchetype, ...rules) — no catch-all, so an unmapped kind is
+            // refused rather than quietly rendered as something.
+            new TypeArchetypeResolver(
+                LocalArchetype,
+                null,
+                new TypeArchetypeResolver.Rule(PlayerType, RemoteArchetype),
+                new TypeArchetypeResolver.Rule(MobType, MobArchetype)),
             SnapshotSpaceMapping.XZPlane,
             writeHealth);
 
@@ -125,11 +141,16 @@ namespace Cuvara.DOTS.Tests.Netcode
             return Entity.Null;
         }
 
-        private static int EntityCount(World world)
+        private int MirrorCount()
         {
-            using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkEntity>());
+            using var query = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkEntity>());
             return query.CalculateEntityCount();
         }
+
+        private int ConfigIndexOf(string id) => _entityManager.GetComponentData<ViewConfigRef>(Find(id)).Index;
+
+        private GameObject ViewOf(string id) =>
+            _registry.Get(_entityManager.GetComponentData<EntityViewLink>(Find(id)).ViewId);
 
         [Test]
         public void Spawn_ThenState_ProducesAPositionedViewInTheSameFrame()
@@ -138,7 +159,7 @@ namespace Cuvara.DOTS.Tests.Netcode
             // netcode group runs and the pooled instance is at the right place after the view group,
             // with no second Tick.
             var view = (IEntityView)_view;
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
             view.SetState("uuid-a", 3f, 7f, 90, 100);
 
             Tick();
@@ -146,79 +167,123 @@ namespace Cuvara.DOTS.Tests.Netcode
             var entity = Find("uuid-a");
             Assert.AreNotEqual(Entity.Null, entity, "the drain created the mirror entity");
             Assert.AreEqual(new float3(3f, 0f, 7f), _entityManager.GetComponentData<LocalTransform>(entity).Position);
+            Assert.AreEqual(new Vector3(3f, 0f, 7f), ViewOf("uuid-a").transform.position);
+        }
 
-            var viewId = _entityManager.GetComponentData<EntityViewLink>(entity).ViewId;
-            Assert.AreEqual(new Vector3(3f, 0f, 7f), _registry.Get(viewId).transform.position);
+        [Test]
+        public void TheServersType_DecidesTheArchetype_NotHowTheIdIsSpelled()
+        {
+            // The regression this whole release exists to make impossible. Under the old prefix
+            // resolver the first of these was a player and the second was a goblin — both wrong, and
+            // both wrong silently.
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);      // no prefix, still a mob
+            view.Spawn("enemy-9", isLocal: false, type: PlayerType);   // prefix says monster, wire says player
+
+            Tick();
+
+            Assert.AreEqual(_catalog.IndexOf(MobArchetype), ConfigIndexOf("uuid-e1"));
+            Assert.AreEqual(_catalog.IndexOf(RemoteArchetype), ConfigIndexOf("enemy-9"));
+        }
+
+        [Test]
+        public void Archetype_ComesFromTheCatalog_ForEveryKind()
+        {
+            var view = (IEntityView)_view;
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
+            view.Spawn("uuid-me", isLocal: true, type: PlayerType);
+
+            Tick();
+
+            Assert.AreEqual(_catalog.IndexOf(MobArchetype), ConfigIndexOf("uuid-e1"));
+            Assert.AreEqual(_catalog.IndexOf(RemoteArchetype), ConfigIndexOf("uuid-a"));
+            Assert.AreEqual(_catalog.IndexOf(LocalArchetype), ConfigIndexOf("uuid-me"),
+                "the local override beats the type rule the remote player matched");
+
+            // The config's scale reached the instance, which is what proves the index was used
+            // rather than merely written.
+            Assert.AreEqual(1.2f, ViewOf("uuid-me").transform.localScale.x, 1e-4f);
         }
 
         [Test]
         public void ServerXY_LandsOnTheGroundPlane_AndTheLiftComesFromTheConfig()
         {
             // The two halves of the sample's (x, 0.5f, y) literal, now separable: the entity is on
-            // the plane the mapping describes, and only the enemy's view is lifted, because only the
-            // enemy's ViewConfig asks for it.
+            // the plane the mapping describes, and only the mob's view is lifted, because only the
+            // mob's ViewConfig asks for it.
             var view = (IEntityView)_view;
-            view.Spawn("enemy-1", isLocal: false);
-            view.SetState("enemy-1", 3f, 7f, 30, 30);
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
+            view.SetState("uuid-e1", 3f, 7f, 30, 30);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
             view.SetState("uuid-a", 3f, 7f, 90, 100);
 
             Tick();
 
-            var enemy = Find("enemy-1");
-            var player = Find("uuid-a");
-
-            Assert.AreEqual(new float3(3f, 0f, 7f), _entityManager.GetComponentData<LocalTransform>(enemy).Position,
+            Assert.AreEqual(new float3(3f, 0f, 7f), _entityManager.GetComponentData<LocalTransform>(Find("uuid-e1")).Position,
                 "the entity itself is never lifted — gameplay maths is 2D");
-
-            var enemyView = _registry.Get(_entityManager.GetComponentData<EntityViewLink>(enemy).ViewId);
-            var playerView = _registry.Get(_entityManager.GetComponentData<EntityViewLink>(player).ViewId);
-
-            Assert.AreEqual(new Vector3(3f, 0.5f, 7f), enemyView.transform.position, "lifted by the config offset");
-            Assert.AreEqual(new Vector3(3f, 0f, 7f), playerView.transform.position, "the player config asks for no lift");
+            Assert.AreEqual(new Vector3(3f, 0.5f, 7f), ViewOf("uuid-e1").transform.position, "lifted by the config offset");
+            Assert.AreEqual(new Vector3(3f, 0f, 7f), ViewOf("uuid-a").transform.position, "the player config asks for no lift");
         }
 
         [Test]
-        public void Archetype_ComesFromTheCatalog_NotFromAHardcodedPrefix()
+        public void IdTypeAndIsLocal_AreAllCarriedOntoTheEntity()
         {
+            // Type is on the entity so a consumer system can filter by kind without a managed
+            // lookup — what the reference implementation's EnemyTag was for.
             var view = (IEntityView)_view;
-            view.Spawn("enemy-1", isLocal: false);
-            view.Spawn("uuid-a", isLocal: false);
-            view.Spawn("uuid-me", isLocal: true);
+            view.Spawn("uuid-me", isLocal: true, type: PlayerType);
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
 
             Tick();
 
-            Assert.AreEqual(_catalog.IndexOf(EnemyArchetype), _entityManager.GetComponentData<ViewConfigRef>(Find("enemy-1")).Index);
-            Assert.AreEqual(_catalog.IndexOf(RemoteArchetype), _entityManager.GetComponentData<ViewConfigRef>(Find("uuid-a")).Index);
-            Assert.AreEqual(_catalog.IndexOf(LocalArchetype), _entityManager.GetComponentData<ViewConfigRef>(Find("uuid-me")).Index);
+            var me = _entityManager.GetComponentData<NetworkEntity>(Find("uuid-me"));
+            Assert.AreEqual(new FixedString64Bytes("uuid-me"), me.Id);
+            Assert.AreEqual(new FixedString32Bytes(PlayerType), me.Type);
+            Assert.IsTrue(me.IsLocal);
 
-            // The config's scale reached the instance, which is what proves the index was used
-            // rather than merely written.
-            var localView = _registry.Get(_entityManager.GetComponentData<EntityViewLink>(Find("uuid-me")).ViewId);
-            Assert.AreEqual(1.2f, localView.transform.localScale.x, 1e-4f);
+            var mob = _entityManager.GetComponentData<NetworkEntity>(Find("uuid-e1"));
+            Assert.AreEqual(new FixedString32Bytes(MobType), mob.Type);
+            Assert.IsFalse(mob.IsLocal);
         }
 
         [Test]
-        public void IsLocal_IsCarriedOntoTheEntity()
+        public void UnmappedType_IsNotPresented_AndSaysSoOnce()
         {
+            // Silence here would be the bad outcome: a build talking to a newer server would show an
+            // empty world and no reason for it.
+            LogAssert.Expect(LogType.Error, new Regex("projectile"));
+
             var view = (IEntityView)_view;
-            view.Spawn("uuid-me", isLocal: true);
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-p1", isLocal: false, type: "projectile");
+            view.Spawn("uuid-p2", isLocal: false, type: "projectile");
 
             Tick();
 
-            Assert.IsTrue(_entityManager.GetComponentData<NetworkEntity>(Find("uuid-me")).IsLocal);
-            Assert.IsFalse(_entityManager.GetComponentData<NetworkEntity>(Find("uuid-a")).IsLocal);
+            Assert.AreEqual(0, MirrorCount(), "an unmapped kind is invisible, not rendered as something else");
+        }
+
+        [Test]
+        public void EmptyType_IsRefused_RatherThanGuessed()
+        {
+            // netcode documents type as "never null; empty when the server sent no type at all".
+            // The empty case is the one where guessing from the id would be most tempting.
+            LogAssert.Expect(LogType.Error, new Regex("no type"));
+
+            ((IEntityView)_view).Spawn("enemy-1", isLocal: false, type: string.Empty);
+
+            Tick();
+
+            Assert.AreEqual(0, MirrorCount());
         }
 
         [Test]
         public void Despawn_DestroysTheEntity_AndRecyclesTheViewInTheSameFrame()
         {
             var view = (IEntityView)_view;
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
             view.SetState("uuid-a", 1f, 1f, 100, 100);
             Tick();
-
             Assert.AreEqual(1, _registry.Count);
 
             view.Despawn("uuid-a");
@@ -229,25 +294,30 @@ namespace Cuvara.DOTS.Tests.Netcode
         }
 
         [Test]
-        public void RespawnAfterDespawn_Works_AndIsANewEntity()
+        public void RespawnAfterDespawn_Works_AndReResolvesTheKind()
         {
-            // An AOI exit followed by a re-entry is the common case, and the id is identical across
-            // it. A stale id → Entity mapping would silently refuse the second spawn.
+            // An AOI exit followed by a re-entry is the common case and the id is identical across
+            // it, so a stale id → Entity mapping would refuse the second spawn. The kind is
+            // re-resolved too: the per-id config cache is dropped on despawn.
             var view = (IEntityView)_view;
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-x", isLocal: false, type: PlayerType);
             Tick();
-            var first = Find("uuid-a");
+            var first = Find("uuid-x");
+            Assert.AreEqual(_catalog.IndexOf(RemoteArchetype), ConfigIndexOf("uuid-x"));
 
-            view.Despawn("uuid-a");
-            Tick();
-
-            view.Spawn("uuid-a", isLocal: false);
-            view.SetState("uuid-a", 5f, 5f, 100, 100);
+            view.Despawn("uuid-x");
             Tick();
 
-            var second = Find("uuid-a");
+            // Same id, different kind — a server reusing an id for a different entity. Nothing
+            // cached from the first life may leak into the second.
+            view.Spawn("uuid-x", isLocal: false, type: MobType);
+            view.SetState("uuid-x", 5f, 5f, 30, 30);
+            Tick();
+
+            var second = Find("uuid-x");
             Assert.AreNotEqual(Entity.Null, second);
             Assert.AreNotEqual(first, second);
+            Assert.AreEqual(_catalog.IndexOf(MobArchetype), ConfigIndexOf("uuid-x"));
             Assert.AreEqual(new float3(5f, 0f, 5f), _entityManager.GetComponentData<LocalTransform>(second).Position);
         }
 
@@ -255,24 +325,24 @@ namespace Cuvara.DOTS.Tests.Netcode
         public void DuplicateSpawn_IsIgnored_NotReplaced()
         {
             var view = (IEntityView)_view;
-            view.Spawn("uuid-a", isLocal: false);
-            view.Spawn("uuid-a", isLocal: false);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
 
             Tick();
 
-            Assert.AreEqual(1, EntityCount(_world));
+            Assert.AreEqual(1, MirrorCount());
         }
 
         [Test]
         public void StateForAnUnknownId_IsDropped_NotImplicitlySpawned()
         {
-            // SetState carries no isLocal, so an implicit spawn would have to guess it — and the one
-            // guess available is wrong exactly for the local player.
+            // SetState carries neither kind nor isLocal, so an implicit spawn would have to invent
+            // both — and inventing the kind is exactly what this release removed.
             ((IEntityView)_view).SetState("uuid-ghost", 1f, 1f, 10, 10);
 
             Tick();
 
-            Assert.AreEqual(0, EntityCount(_world));
+            Assert.AreEqual(0, MirrorCount());
         }
 
         [Test]
@@ -281,12 +351,12 @@ namespace Cuvara.DOTS.Tests.Netcode
             // Health means "destroy at zero" in this package. Mirroring server hp into it by default
             // would let a client-side system destroy entities the server is still listing.
             var view = (IEntityView)_view;
-            view.Spawn("enemy-1", isLocal: false);
-            view.SetState("enemy-1", 0f, 0f, 12, 30);
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
+            view.SetState("uuid-e1", 0f, 0f, 12, 30);
 
             Tick();
 
-            var entity = Find("enemy-1");
+            var entity = Find("uuid-e1");
             var state = _entityManager.GetComponentData<NetworkEntityState>(entity);
             Assert.AreEqual(12, state.Hp);
             Assert.AreEqual(30, state.MaxHp);
@@ -300,12 +370,12 @@ namespace Cuvara.DOTS.Tests.Netcode
             DotsNetcodeBootstrap.Install(_world, opted);
 
             var view = (IEntityView)opted;
-            view.Spawn("enemy-1", isLocal: false);
-            view.SetState("enemy-1", 0f, 0f, 12, 30);
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
+            view.SetState("uuid-e1", 0f, 0f, 12, 30);
 
             Tick();
 
-            var health = _entityManager.GetComponentData<Health>(Find("enemy-1"));
+            var health = _entityManager.GetComponentData<Health>(Find("uuid-e1"));
             Assert.AreEqual(12, health.Current);
             Assert.AreEqual(30, health.Max);
         }
@@ -313,18 +383,20 @@ namespace Cuvara.DOTS.Tests.Netcode
         [Test]
         public void UnknownArchetype_IsNotPresented_AndDoesNotThrow()
         {
+            // The resolver named an archetype; the catalog has never heard of it. Distinct from an
+            // unmapped *kind*, and reported by the adapter rather than by the resolver.
             var stranded = new DotsEntityView(
                 _catalog,
-                new PrefixArchetypeResolver("no-such-archetype", "no-such-archetype"),
+                new TypeArchetypeResolver(null, "no-such-archetype"),
                 SnapshotSpaceMapping.XZPlane);
             DotsNetcodeBootstrap.Install(_world, stranded);
 
-            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("no-such-archetype"));
+            LogAssert.Expect(LogType.Error, new Regex("no-such-archetype"));
 
-            ((IEntityView)stranded).Spawn("uuid-a", isLocal: false);
+            ((IEntityView)stranded).Spawn("uuid-a", isLocal: false, type: PlayerType);
             Tick();
 
-            Assert.AreEqual(0, EntityCount(_world), "an unconfigured id is invisible, not rendered as something else");
+            Assert.AreEqual(0, MirrorCount(), "an unconfigured archetype is invisible, not rendered as something else");
             Assert.AreEqual(0, stranded.Count);
         }
 
@@ -333,18 +405,18 @@ namespace Cuvara.DOTS.Tests.Netcode
         {
             // What WorldViewBinder.Reset does on a map transfer: a Despawn for every live id.
             var view = (IEntityView)_view;
-            view.Spawn("uuid-a", isLocal: false);
-            view.Spawn("uuid-b", isLocal: false);
-            view.Spawn("enemy-1", isLocal: false);
+            view.Spawn("uuid-a", isLocal: false, type: PlayerType);
+            view.Spawn("uuid-b", isLocal: false, type: PlayerType);
+            view.Spawn("uuid-e1", isLocal: false, type: MobType);
             Tick();
-            Assert.AreEqual(3, EntityCount(_world));
+            Assert.AreEqual(3, MirrorCount());
 
             view.Despawn("uuid-a");
             view.Despawn("uuid-b");
-            view.Despawn("enemy-1");
+            view.Despawn("uuid-e1");
             Tick();
 
-            Assert.AreEqual(0, EntityCount(_world));
+            Assert.AreEqual(0, MirrorCount());
             Assert.AreEqual(0, _registry.Count);
             Assert.AreEqual(0, _view.Count);
         }
@@ -355,7 +427,7 @@ namespace Cuvara.DOTS.Tests.Netcode
             var view = (IEntityView)_view;
             for (var i = 0; i < 50; i++)
             {
-                view.Spawn($"uuid-{i}", isLocal: false);
+                view.Spawn($"uuid-{i}", isLocal: false, type: PlayerType);
                 view.SetState($"uuid-{i}", i, i, 100, 100);
             }
 
@@ -364,7 +436,7 @@ namespace Cuvara.DOTS.Tests.Netcode
             Tick();
 
             Assert.AreEqual(0, _view.PendingCommands, "a partial drain would leave entities at the origin");
-            Assert.AreEqual(50, EntityCount(_world));
+            Assert.AreEqual(50, MirrorCount());
         }
     }
 }

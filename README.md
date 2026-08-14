@@ -13,7 +13,7 @@ provisioning. Not yet compiled against a Unity Editor — see `CHANGELOG.md`.
 | `Runtime.GameFoundation/` | `Cuvara.DOTS.GameFoundation` | yes — UniT + UniTask defines | `IViewAssetProvider` over `IAssetsManager` + `IObjectPoolManager` |
 | `Runtime.GameLogic/` | `Cuvara.DOTS.GameLogic` | yes — `CUVARA_SHARED_GAMELOGIC` | `ISimulationModel` over `Shared.GameLogic`, plus all `Vec2`↔`float2` conversion |
 | `Runtime.DI/` | `Cuvara.DOTS.DI` | yes — `CUVARA_DOTS_VCONTAINER` | `RegisterDotsViews()`, `RegisterSimulationModel()`, MessagePipe binding |
-| `Runtime.Netcode/` | `Cuvara.DOTS.Netcode` | yes — `CUVARA_NETCODE` | `IEntityView` over ECS: server snapshots become entities and views |
+| `Runtime.Netcode/` | `Cuvara.DOTS.Netcode` | yes — `CUVARA_NETCODE`, netcode >= 0.4.0 | `IEntityView` over ECS: server snapshots become entities and views |
 | `Editor/` | `Cuvara.DOTS.Editor` | no | Editor-only tooling and inspectors |
 | `Tests/Runtime/` | `Cuvara.DOTS.Tests.Runtime` | no | Play-mode tests |
 | `Tests/Editor/` | `Cuvara.DOTS.Tests.Editor` | no | Edit-mode tests |
@@ -37,12 +37,14 @@ With `com.cuvara.netcode` installed, `Cuvara.DOTS.Netcode` supplies a `Cuvara.Ne
 that presents replicated entities as ECS entities driven through this package's own view pipeline.
 
 ```csharp
-// Which archetype an id is presented as. The wire seam hands the view an id and an isLocal flag
-// and nothing else, so this is where a project's naming convention goes.
-var resolver = new PrefixArchetypeResolver(
-    localArchetype:  "player-local",
-    remoteArchetype: "player-remote",
-    new PrefixArchetypeResolver.Rule("enemy-", "goblin"));
+// Which archetype an entity is presented as, keyed on the kind the server sent. Arguments are
+// (localArchetype, unknownArchetype, ...rules); a null unknownArchetype means an unmapped kind is
+// refused and logged rather than quietly rendered as something else.
+var resolver = new TypeArchetypeResolver(
+    "player-local",
+    null,
+    new TypeArchetypeResolver.Rule("player", "player-remote"),
+    new TypeArchetypeResolver.Rule("mob", "goblin"));
 
 var view = new DotsEntityView(catalog, resolver, SnapshotSpaceMapping.XZPlane);
 DotsNetcodeBootstrap.Install(world, view);          // publishes NetworkEntityViewReference
@@ -52,12 +54,21 @@ var binder = new WorldViewBinder(view);             // from com.cuvara.netcode
 binder.Tick(worldState, networkClient.UserId);
 ```
 
-Each replicated id becomes an entity carrying `NetworkEntity` (the wire id and `IsLocal`),
-`NetworkEntityState` (the newest authoritative hp), a `LocalTransform`, and the `EntityViewRequest` +
-`ViewConfigRef` pair the spawn path already understands. Nothing about the presentation is hardcoded:
-the prefab, pool size, scale and offsets all come from the `ViewConfig` the resolver named.
+Each replicated id becomes an entity carrying `NetworkEntity` (the wire id, the server's entity kind,
+and `IsLocal`), `NetworkEntityState` (the newest authoritative hp), a `LocalTransform`, and the
+`EntityViewRequest` + `ViewConfigRef` pair the spawn path already understands. Nothing about the
+presentation is hardcoded: the prefab, pool size, scale and offsets all come from the `ViewConfig` the
+resolver named.
 
-Three things worth knowing before wiring it up:
+Four things worth knowing before wiring it up:
+
+- **Requires `com.cuvara.netcode` 0.4.0 or newer**, enforced by the asmdef's `versionDefines`
+  expression rather than by a `package.json` dependency. With an older netcode installed the define
+  is never set and `Cuvara.DOTS.Netcode` simply does not compile into the project — the adapter is
+  absent instead of broken. 0.4.0 is the release that added the entity type to `IEntityView.Spawn`.
+- **Kind comes from the wire, never from the id.** `TypeArchetypeResolver` maps the server's entity
+  type (`"player"`, `"mob"`, …) to an archetype name, exactly and ordinally. Inferring kind from an
+  id prefix is what `PrefixArchetypeResolver` did before 0.9.0, and it is gone.
 
 - **`IEntityView` calls enqueue; they do not write components.** The queue is drained by an internal
   system in `NetcodeSystemGroup`, which is in `InitializationSystemGroup` — before this frame's
@@ -206,7 +217,7 @@ Optional, and resolved by your project rather than by this package:
 
 | Package | Enables | Define |
 |---|---|---|
-| `com.cuvara.netcode` | `Cuvara.DOTS.Netcode` — `IEntityView` over ECS | `CUVARA_NETCODE` |
+| `com.cuvara.netcode` **>= 0.4.0** | `Cuvara.DOTS.Netcode` — `IEntityView` over ECS | `CUVARA_NETCODE` |
 | `com.rpgmmo.shared-gamelogic` | `Cuvara.DOTS.GameLogic` | `CUVARA_SHARED_GAMELOGIC` |
 | VContainer | `Cuvara.DOTS.DI` | `CUVARA_DOTS_VCONTAINER` |
 

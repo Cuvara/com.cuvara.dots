@@ -107,6 +107,7 @@ namespace Cuvara.DOTS.Netcode
             entityManager.AddComponentData(entity, new NetworkEntity
             {
                 Id = command.Id,
+                Type = command.Type,
                 IsLocal = command.IsLocal,
             });
 

@@ -5,6 +5,99 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-14
+
+Follows `com.cuvara.netcode` 0.4.0, which added the server's entity kind to `IEntityView.Spawn`. The
+guessing this package did in 0.8.0 is gone — and the escalation that produced the netcode change
+started here, in 0.8.0's own note that the prefix resolver was a workaround with a named exit.
+
+### Changed — breaking
+
+- **`DotsEntityView.Spawn` now takes the entity type**: `Spawn(string id, bool isLocal, string type)`,
+  matching netcode 0.4.0. It is not source-compatible with 0.8.0, and could not be: the old signature
+  no longer satisfies `IEntityView`, and an overload does not rescue callers who hold the interface
+  rather than the class.
+- **`INetworkArchetypeResolver.TryResolve` now takes a `NetworkEntityDescriptor`** — `Id`, `Type`,
+  `IsLocal` in one readonly struct — instead of `(string id, bool isLocal)`.
+  **A parameter object, deliberately.** `IEntityView` has just broken every implementation and every
+  call site over adding exactly one field. This seam is younger and smaller and can decline to repeat
+  that: a fifth signal — faction, team, level — becomes a field on the struct, and existing resolvers
+  keep compiling. It is not a claim netcode should have done the same; its interface is three narrow
+  methods where a struct would be a heavier promise than the seam wants.
+- **`NetworkEntity` gains `Type`** (`FixedString32Bytes`), so a system can filter by kind without a
+  managed lookup — what the reference implementation's `EnemyTag` was for, as data rather than as a
+  tag the package cannot name. Truncating rather than refusing, unlike `Id`: resolution runs on the
+  full managed string before the command is queued, so a long kind still reaches the right archetype
+  and only reads back clipped in this convenience field.
+- **The asmdefs now require netcode >= 0.4.0** via the `versionDefines` expression (`"0.4.0"` instead
+  of `""`). With an older netcode installed, `CUVARA_NETCODE` is never defined and
+  `Cuvara.DOTS.Netcode` does not compile into the project at all. That is the point: **absent beats
+  broken.** Without it, netcode 0.3.x plus dots 0.9.0 is a `CS0535` in a package the consumer did not
+  write and cannot easily fix. Expressed here rather than as a `package.json` dependency because the
+  adapter is optional — a `dependencies` entry would force netcode on every consumer of this package.
+
+### Removed
+
+- **`PrefixArchetypeResolver` is deleted**, along with its tests. **Argued, not defaulted.** The case
+  for keeping it as a fallback is that netcode documents `type` as "empty when the server sent no type
+  at all", so a server that never populates the field is representable. The case against, which wins:
+  a server that does not send `Type` has no obligation to encode kind in its ids either — the
+  `"enemy-"` convention was one sample's, not a protocol — so the fallback would be guessing against a
+  server whose vocabulary we would not know, to avoid guessing against one that tells us. And a
+  strictly better answer already exists for the empty-type case: `TypeArchetypeResolver`'s
+  `unknownArchetype`, which is explicit, uniform, and fails *visibly* — every unknown entity looks the
+  same and obviously placeholder — where prefix matching fails invisibly, some ids happening to match
+  and some not. A consumer that genuinely wants id-based dispatch writes its own
+  `INetworkArchetypeResolver`; that is what the seam is for.
+  Nothing depended on it: 0.8.0 shipped hours earlier and the client has no gameplay code yet.
+
+### Added
+
+- **`TypeArchetypeResolver`** — exact ordinal mapping from the server's entity kind to an archetype
+  name, plus an optional local-player override and an optional catch-all.
+  - **No case folding and no prefix matching.** The type is a wire enum in string clothing; treating
+    `"Mob"` as `"mob"` would paper over a schema disagreement that should be visible.
+  - **The local override beats the type rule.** `IsLocal` is derived by comparing the id with the
+    client's own `NetworkClient.UserId`, so it is the one field in a snapshot that does not depend on
+    the server's vocabulary matching this build's. The ordinary case is `"player"` + `IsLocal` → a
+    distinct local archetype; the incoherent case — a `"mob"` whose id is the local player's — is
+    server confusion, answered with the client's own belief.
+  - **An unmapped or empty kind is refused and logged once per kind**, not mapped to a silent
+    default. A build talking to a newer server would otherwise render every unknown kind as a player
+    and look like it was working. The two cases get different messages, because "I don't know that
+    kind" and "you sent no kind" are different diagnoses.
+  - One constructor, `(localArchetype, unknownArchetype, params Rule[])`. An `IReadOnlyList` overload
+    was written and removed: with both present, `new TypeArchetypeResolver(null, "x")` is `CS0121`.
+- **`NetworkEntityDescriptor`** — the resolver's input. Normalises null `Id`/`Type` to empty at the
+  boundary so no implementation has to null-check.
+
+### Tests
+
+39 in `Tests/Editor.Netcode/` (was 28), still driven through the public groups rather than named
+systems. The 20 `Spawn` call sites carry a type now, and **the ids were rewritten to carry no
+meaning**: the mob's id is `"uuid-e1"`, and one test spawns a *player* whose id is literally
+`"enemy-9"`. Under the old prefix resolver the first would have been a player and the second a
+goblin — both wrong, both silent. New coverage: type-decides-archetype in both directions, the type
+landing on `NetworkEntity`, unmapped and empty kinds refused, the once-per-kind logging, the catch-all,
+ordinal matching, duplicate/incomplete rules throwing at construction, and a respawn that re-resolves
+a *different* kind for a reused id.
+
+### Unverified
+
+**Nothing here has been compiled.** Same as 0.8.0 — no Unity Editor was available on this side. The
+specific claims a build has to settle:
+
+- The `versionDefines` expression `"0.4.0"` behaving as "0.4.0 or newer". The check is that
+  `Cuvara.DOTS.Netcode.dll` **disappears** under netcode 0.3.2 and **appears** under 0.4.0. If the
+  expression syntax is wrong the assembly silently never compiles, which is this package's least
+  favourite failure mode; a range literal (`[0.4.0,)`) is the fallback if the bare version does not
+  work.
+- `FixedString32Bytes` as an `IComponentData` field and its `CopyFromTruncated` overload.
+- `in`-parameter interface implementation (`TryResolve(in NetworkEntityDescriptor, out string)`)
+  across the assembly boundary.
+- All 39 tests, and the `LogAssert.Expect` calls in particular — an over- or under-counted expected
+  error fails the test either way.
+
 ## [0.8.0] - 2026-08-14
 
 ### Added
