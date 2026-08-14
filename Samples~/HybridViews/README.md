@@ -35,6 +35,10 @@ primitives, and the Console narrates what the chunk reference counts do while it
    - Releasing chunk.alpha does **not** unload `sphere`, because chunk.beta still lists it. The
      spheres keep rendering across the release.
    - Releasing the same chunk twice is a **no-op**, not a double decrement. Step 5b proves it.
+   - The cube entities are **still alive** when step 5 releases chunk.alpha, so the release
+     cascades: their views come down through the ordinary despawn path before the key is torn
+     down, and the entities live on without a view. The count column above is refcounts, not
+     views — see *Caveats* for what the cascade does and does not do.
 
 6. **A cold key is deferred, not force-loaded.** Two capsule entities are created in step 2 while
    `capsule` is still cold. They exist and move, but have no view until chunk.beta warms them in

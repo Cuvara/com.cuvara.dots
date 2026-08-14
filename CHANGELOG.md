@@ -146,11 +146,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clean under URP, HDRP or the built-in pipeline. `.meta` files with fixed GUIDs ship alongside the
   sample's files, because a scene that references a script by GUID breaks if the GUID is regenerated
   at import time.
-- **Sample-revealed hazard, documented in the sample README:** releasing a chunk whose entities are
-  still alive destroys those views through `IViewAssetProvider.Release` while the
-  `EntityViewRegistry` keeps their handles and the entities keep an `EntityViewLink` that will never
-  resolve or respawn. The package has no chunk→entity ownership model, so callers must despawn the
-  entities before releasing the chunk.
+- **The hazard this sample surfaced** — releasing a chunk whose entities are still alive used to
+  destroy those views through `IViewAssetProvider.Release` while the `EntityViewRegistry` kept their
+  handles and the entities kept an `EntityViewLink` that could never resolve or respawn. Writing the
+  sample is what made it visible; it is **fixed in this same version** (see *Fixed* above) and
+  replaced by the cascade in 0.6.0. Kept here only as the origin of that fix.
 - Sample updated for the 0.4.0 transform change: entities created from code now add `LocalToWorld`
   explicitly (`TransformSystemGroup` writes into it but does not add it — baking would, runtime
   creation does not), and `OrbitMotionSystem` names its group instead of relying on the default.
