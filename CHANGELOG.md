@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-14
+
+### Fixed
+
+- **Releasing a chunk no longer destroys live views.** `ChunkViewProvisioner` refcounts *chunks*,
+  and a live view is held by an entity it has never heard of, so a release whose key count hit zero
+  destroyed on-screen pooled instances while `EntityViewRegistry` kept their handles and the entities
+  kept an `EntityViewLink` that could never resolve or respawn — views silently gone, no error, no
+  recovery, on the ordinary streaming path. `ReleaseChunk` now **refuses**: it returns a
+  `ChunkReleaseResult` carrying `LiveViewCount` and a `BlockingKey`, logs a warning, publishes
+  `ChunkReleased` with `Released == false`, and changes nothing. Refusal was chosen over deferring
+  (reports success for something that did not happen) and over cascading despawns (puts entity
+  lifetime decisions in the asset layer, which cannot see entities) because it is the only one whose
+  failure mode a consumer can see. Live views on a key another chunk also references do not block —
+  that release would not tear the key down. Backed by `ChunkReleaseSafetyTests`.
+- **A never-warmed view key no longer defers in silence.** `EntityViewSpawnSystem` counts deferrals
+  per key and warns once after 300 frames, so a typo'd key is distinguishable from a slow load. The
+  deferral policy itself is unchanged.
+- **Views spawn already rotated.** `EntityViewRegistry.Spawn` took the entity's rotation from
+  `LocalToWorld` instead of always using identity, which showed one frame of wrong facing.
+
+### Added
+
+- **MessagePipe messaging, without a core dependency.** `Cuvara.DOTS.Runtime` declares two
+  one-method interfaces — `IDotsPublisher<T>` and `IDotsSubscriber<T>` — plus four message types
+  (`ViewSpawned`, `ViewDespawned`, `ChunkWarmed`, `ChunkReleased`), and never names a MessagePipe
+  type. The adapters binding them to MessagePipe's `IPublisher<T>`/`ISubscriber<T>` live in
+  `Cuvara.DOTS.DI` behind a `versionDefines` gate on `com.cysharp.messagepipe`. **With MessagePipe
+  absent, publishing is a no-op via `NullDotsPublisher<T>` — that is the documented behaviour, and no
+  signal bus is written to fill the gap.** Nothing inside the package subscribes; the messages exist
+  for consumers.
+- `ILiveViewCounter`, implemented by `EntityViewRegistry`, so the provisioning layer can ask about
+  live views without knowing what a view or an entity is.
+- `ChunkViewProvisioner.IsChunkLoaded` — the "have the loads finished?" question callers actually
+  want.
+
+### Changed
+
+- **Breaking: `Cuvara.DOTS.VContainer` renamed to `Cuvara.DOTS.DI`** (folder `Runtime.VContainer/` →
+  `Runtime.DI/`), matching the namespace it already used.
+- **Breaking: `IsChunkWarm` renamed to `IsChunkTracked`.** It returns true the instant
+  `PrewarmChunkAsync` is called, before anything has loaded, which every caller would read as "loads
+  finished". `IsChunkLoaded` is that question.
+- **Breaking: `ReleaseChunk` returns `ChunkReleaseResult`, not `bool`**, and `ReleaseAll` returns the
+  number of chunks it could not release. A bool collapsed "unknown chunk" and "refused" into the same
+  value, which is how a streaming bug hides.
+- `RegisterDotsViews()` now owns the `ChunkViewProvisioner` registration and wires the registry in as
+  its `ILiveViewCounter`; `RegisterGameFoundationViewProvisioning()` no longer registers one, since
+  registering it in both places would silently give whichever ran last.
+
+### Accepted limitations
+
+- **A provisioner built without an `ILiveViewCounter` still releases unconditionally.** The parameter
+  is optional so the type stays usable without the view layer; the constructor documents it as unsafe
+  for streaming, and a test pins the behaviour so it is a decision rather than an accident.
+- **Nothing has been compiled.** The MessagePipe adapters are unexercised — no test assembly declares
+  a MessagePipe dependency.
+
 ### Added
 
 - **`Samples~/HybridViews` sample ("Hybrid Views"), declared in `package.json`.** A `MonoBehaviour`

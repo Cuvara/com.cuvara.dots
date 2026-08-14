@@ -87,9 +87,13 @@ namespace Cuvara.DOTS.Tests.Editor
             _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin" });
             _provisioner.PrewarmChunkAsync("chunk-b", new[] { "goblin" });
 
-            Assert.IsFalse(_provisioner.ReleaseChunk("never-warmed"));
-            Assert.IsTrue(_provisioner.ReleaseChunk("chunk-a"));
-            Assert.IsFalse(_provisioner.ReleaseChunk("chunk-a"), "second release must not decrement again");
+            var unknown = _provisioner.ReleaseChunk("never-warmed");
+            Assert.IsFalse(unknown.Released);
+            Assert.IsFalse(unknown.WasTracked, "an unknown chunk is a no-op, not a refusal");
+            Assert.IsFalse(unknown.WasRefused);
+
+            Assert.IsTrue(_provisioner.ReleaseChunk("chunk-a").Released);
+            Assert.IsFalse(_provisioner.ReleaseChunk("chunk-a").Released, "second release must not decrement again");
 
             Assert.AreEqual(1, _provisioner.GetReferenceCount("goblin"));
             CollectionAssert.DoesNotContain(_provider.Released, "goblin");

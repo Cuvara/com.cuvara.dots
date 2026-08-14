@@ -1,5 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using Cuvara.DOTS.Groups;
 using Unity.Transforms;
 
@@ -55,16 +56,27 @@ namespace Cuvara.DOTS.Views
             {
                 var entity = entities[i];
                 var key = entityManager.GetComponentData<EntityViewRequest>(entity).ViewKey.ToString();
-                if (!registry.IsWarm(key)) continue; // retried next frame, see remarks
+                if (!registry.IsWarm(key))
+                {
+                    // Retried next frame — but counted, so a key that will never arrive (a typo, a
+                    // prefab missing from the chunk manifest) eventually says so instead of
+                    // deferring in silence forever. One warning per key, not one per frame.
+                    registry.NoteDeferredSpawn(key);
+                    continue;
+                }
 
                 // LocalToWorld, not LocalTransform: LocalTransform is relative to the parent, so a
                 // parented entity would place its view at local coordinates. LocalToWorld is what
                 // TransformSystemGroup just computed and is correct either way.
-                var position = entityManager.HasComponent<LocalToWorld>(entity)
-                    ? entityManager.GetComponentData<LocalToWorld>(entity).Position
-                    : default;
+                var hasTransform = entityManager.HasComponent<LocalToWorld>(entity);
+                var localToWorld = hasTransform ? entityManager.GetComponentData<LocalToWorld>(entity) : default;
+                var position = hasTransform ? localToWorld.Position : float3.zero;
 
-                var viewId = registry.Spawn(key, position);
+                // Spawn already rotated: spawning at identity and letting the first sync correct it
+                // shows one frame of wrong facing on everything that spawns already oriented.
+                var rotation = hasTransform ? localToWorld.Rotation : quaternion.identity;
+
+                var viewId = registry.Spawn(key, position, rotation);
                 if (viewId == 0) continue;
 
                 entityManager.AddComponentData(entity, new EntityViewLink { ViewId = viewId });

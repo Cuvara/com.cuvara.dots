@@ -17,13 +17,18 @@ namespace Cuvara.DOTS.GameFoundation
     public static class GameFoundationViewProvisioningVContainer
     {
         /// <summary>
-        /// Registers <see cref="GameFoundationViewAssetProvider"/> as <see cref="IViewAssetProvider"/>
-        /// and a <see cref="ChunkViewProvisioner"/> over it.
+        /// Registers <see cref="GameFoundationViewAssetProvider"/> as <see cref="IViewAssetProvider"/>.
         /// </summary>
+        /// <remarks>
+        /// The <c>ChunkViewProvisioner</c> is deliberately <b>not</b> registered here.
+        /// <c>RegisterDotsViews()</c> owns it, because it is the only call site that can hand the
+        /// provisioner the <c>EntityViewRegistry</c> as its <c>ILiveViewCounter</c> — and a
+        /// provisioner without one releases chunk assets out from under live views. Registering it
+        /// in both places would give whichever ran last, silently.
+        /// </remarks>
         public static IContainerBuilder RegisterGameFoundationViewProvisioning(this IContainerBuilder builder, Lifetime lifetime = Lifetime.Singleton)
         {
             builder.Register<GameFoundationViewAssetProvider>(lifetime).As<IViewAssetProvider>();
-            builder.Register<ChunkViewProvisioner>(lifetime).AsSelf();
             return builder;
         }
     }

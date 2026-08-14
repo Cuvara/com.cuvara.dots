@@ -1,4 +1,5 @@
 #if CUVARA_DOTS_VCONTAINER
+using Cuvara.DOTS.Messaging;
 using Cuvara.DOTS.Provisioning;
 using Cuvara.DOTS.Views;
 using Unity.Entities;
@@ -35,8 +36,25 @@ namespace Cuvara.DOTS.DI
         /// <param name="viewRoot">Optional parent for spawned views. Null parents to the scene root.</param>
         public static IContainerBuilder RegisterDotsViews(this IContainerBuilder builder, Transform viewRoot = null, World world = null)
         {
-            builder.Register(container => new EntityViewRegistry(container.Resolve<IViewAssetProvider>(), viewRoot), Lifetime.Singleton)
-                .AsSelf();
+            // Publishers first: the registry and provisioner take them as constructor arguments, and
+            // with no messaging library installed these resolve to no-op publishers.
+            builder.RegisterDotsMessaging();
+
+            builder.Register(container => new EntityViewRegistry(
+                    container.Resolve<IViewAssetProvider>(),
+                    viewRoot,
+                    container.Resolve<IDotsPublisher<ViewSpawned>>(),
+                    container.Resolve<IDotsPublisher<ViewDespawned>>()),
+                Lifetime.Singleton).AsSelf().As<ILiveViewCounter>();
+
+            // The registry is passed to the provisioner as its ILiveViewCounter. Without it the
+            // provisioner cannot see live views and would release chunk assets out from under them.
+            builder.Register(container => new ChunkViewProvisioner(
+                    container.Resolve<IViewAssetProvider>(),
+                    container.Resolve<EntityViewRegistry>(),
+                    container.Resolve<IDotsPublisher<ChunkWarmed>>(),
+                    container.Resolve<IDotsPublisher<ChunkReleased>>()),
+                Lifetime.Singleton).AsSelf();
 
             // Deferred to build time: the DOTS world and the container are created independently,
             // and resolving the registry during registration would invert that.

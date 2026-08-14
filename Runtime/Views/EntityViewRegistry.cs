@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Cuvara.DOTS.Messaging;
 using Cuvara.DOTS.Provisioning;
 using Unity.Mathematics;
 using UnityEngine;
@@ -21,19 +22,47 @@ namespace Cuvara.DOTS.Views
     /// bug that reads as a rendering glitch. Wrapping at <see cref="int.MaxValue"/> is not
     /// defended against; a session would have to spawn two billion views to reach it.
     /// </para>
+    /// <para>
+    /// It also implements <see cref="ILiveViewCounter"/>. That is what lets
+    /// <see cref="ChunkViewProvisioner"/> refuse to tear down assets a live view still stands on —
+    /// see <c>ChunkViewProvisioner.ReleaseChunk</c>.
+    /// </para>
     /// </remarks>
-    public sealed class EntityViewRegistry
+    public sealed class EntityViewRegistry : ILiveViewCounter
     {
         private readonly IViewAssetProvider _provider;
         private readonly Dictionary<int, GameObject> _views = new Dictionary<int, GameObject>();
         private readonly Dictionary<int, Transform> _transforms = new Dictionary<int, Transform>();
+
+        /// <summary>Handle -&gt; the key it was spawned from, so a despawn can decrement the right count.</summary>
+        private readonly Dictionary<int, string> _keys = new Dictionary<int, string>();
+
+        /// <summary>Key -&gt; number of live views currently standing on it.</summary>
+        private readonly Dictionary<string, int> _liveByKey = new Dictionary<string, int>();
+
+        /// <summary>Key -&gt; consecutive frames a spawn has been deferred waiting for it to warm.</summary>
+        private readonly Dictionary<string, int> _deferrals = new Dictionary<string, int>();
+
+        /// <summary>Keys already warned about, so the warning is once per key rather than per frame.</summary>
+        private readonly HashSet<string> _warnedKeys = new HashSet<string>();
+
+        private readonly IDotsPublisher<ViewSpawned> _spawnedPublisher;
+        private readonly IDotsPublisher<ViewDespawned> _despawnedPublisher;
         private readonly Transform _root;
         private int _nextViewId = 1;
 
-        public EntityViewRegistry(IViewAssetProvider provider, Transform root = null)
+        public EntityViewRegistry(
+            IViewAssetProvider provider,
+            Transform root = null,
+            IDotsPublisher<ViewSpawned> spawnedPublisher = null,
+            IDotsPublisher<ViewDespawned> despawnedPublisher = null)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
             _root = root;
+
+            // Never null internally, so no publish site has to branch on whether messaging exists.
+            _spawnedPublisher = spawnedPublisher ?? NullDotsPublisher<ViewSpawned>.Instance;
+            _despawnedPublisher = despawnedPublisher ?? NullDotsPublisher<ViewDespawned>.Instance;
         }
 
         /// <summary>Live view count. Used by tests and diagnostics.</summary>
@@ -43,18 +72,73 @@ namespace Cuvara.DOTS.Views
         public bool IsWarm(string key) => _provider.IsWarm(key);
 
         /// <summary>
+        /// Frames a spawn is deferred before the key is reported as probably never arriving. About
+        /// five seconds at 60fps — long enough that an ordinary streaming load never trips it.
+        /// </summary>
+        public const int DeferralWarningThreshold = 300;
+
+        /// <summary>
+        /// Records that a spawn was deferred because its key is not warm, and warns once per key
+        /// after <see cref="DeferralWarningThreshold"/> attempts.
+        /// </summary>
+        /// <remarks>
+        /// Deferring rather than force-loading is the right policy, but a key that will never be
+        /// warmed — a typo, a prefab missing from a chunk manifest — is indistinguishable from a
+        /// slow load if nothing ever says so. One warning per key, not one per frame, because the
+        /// per-frame version is noise that gets filtered and then ignored.
+        /// </remarks>
+        /// <returns>True if this call emitted the warning.</returns>
+        public bool NoteDeferredSpawn(string key)
+        {
+            if (string.IsNullOrEmpty(key) || _warnedKeys.Contains(key)) return false;
+
+            _deferrals.TryGetValue(key, out var count);
+            count++;
+            _deferrals[key] = count;
+
+            if (count < DeferralWarningThreshold) return false;
+
+            _warnedKeys.Add(key);
+            Debug.LogWarning(
+                $"[Cuvara.DOTS] View key '{key}' has been waiting to spawn for {count} frames and is still not " +
+                "warm. Either no chunk prewarmed it or the key does not exist. Entities requesting it stay " +
+                "invisible until it arrives. This warns once per key.");
+            return true;
+        }
+
+        /// <inheritdoc />
+        public int CountLiveViews(string key) =>
+            key != null && _liveByKey.TryGetValue(key, out var count) ? count : 0;
+
+        /// <summary>
         /// Spawns a view for the key and returns its handle, or 0 if the provider gave nothing back.
         /// </summary>
-        public int Spawn(string key, float3 position)
+        public int Spawn(string key, float3 position) => Spawn(key, position, quaternion.identity);
+
+        /// <summary>
+        /// Spawns a view at a position and rotation.
+        /// </summary>
+        /// <remarks>
+        /// The rotation overload exists because spawning at <c>identity</c> and letting the first
+        /// sync fix it means one frame of visibly wrong facing on every spawn — most obvious on
+        /// anything spawned already moving.
+        /// </remarks>
+        public int Spawn(string key, float3 position, quaternion rotation)
         {
             if (string.IsNullOrEmpty(key)) return 0;
 
-            var instance = _provider.Acquire(key, position, Quaternion.identity, _root);
+            var instance = _provider.Acquire(key, position, rotation, _root);
             if (instance == null) return 0;
 
             var viewId = _nextViewId++;
             _views[viewId] = instance;
             _transforms[viewId] = instance.transform;
+            _keys[viewId] = key;
+            _liveByKey.TryGetValue(key, out var live);
+            _liveByKey[key] = live + 1;
+            _deferrals.Remove(key); // it arrived; the wait no longer counts against it
+
+            _spawnedPublisher.Publish(new ViewSpawned(viewId, key));
             return viewId;
         }
 
@@ -65,7 +149,13 @@ namespace Cuvara.DOTS.Views
 
             _views.Remove(viewId);
             _transforms.Remove(viewId);
+
+            _keys.TryGetValue(viewId, out var key);
+            _keys.Remove(viewId);
+            DecrementLive(key);
+
             if (instance != null) _provider.ReleaseInstance(instance);
+            _despawnedPublisher.Publish(new ViewDespawned(viewId, key));
             return true;
         }
 
@@ -95,10 +185,22 @@ namespace Cuvara.DOTS.Views
             foreach (var pair in _views)
             {
                 if (pair.Value != null) _provider.ReleaseInstance(pair.Value);
+                _keys.TryGetValue(pair.Key, out var key);
+                _despawnedPublisher.Publish(new ViewDespawned(pair.Key, key));
             }
 
             _views.Clear();
             _transforms.Clear();
+            _keys.Clear();
+            _liveByKey.Clear();
+        }
+
+        private void DecrementLive(string key)
+        {
+            if (key == null || !_liveByKey.TryGetValue(key, out var live)) return;
+
+            if (live <= 1) _liveByKey.Remove(key);
+            else _liveByKey[key] = live - 1;
         }
     }
 }

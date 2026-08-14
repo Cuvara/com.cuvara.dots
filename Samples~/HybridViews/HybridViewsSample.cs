@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Cuvara.DOTS.Groups;
 using Cuvara.DOTS.Provisioning;
 using Cuvara.DOTS.Views;
 using Unity.Collections;
@@ -81,7 +82,10 @@ namespace Cuvara.DOTS.Samples.HybridViews
 
             _provider = new PrimitiveViewAssetProvider(_definitions, _viewRoot);
             _registry = new EntityViewRegistry(_provider, _viewRoot);
-            _provisioner = new ChunkViewProvisioner(_provider);
+            // The registry is the ILiveViewCounter: it is what lets ReleaseChunk refuse to tear
+            // down assets that live views are still standing on. Omitting it is what the 0.4.0
+            // sample had to work around.
+            _provisioner = new ChunkViewProvisioner(_provider, _registry);
 
             // The one call that wires the package into a world. Everything else below is ordinary
             // ECS code that happens to add EntityViewRequest.
@@ -196,14 +200,23 @@ namespace Cuvara.DOTS.Samples.HybridViews
         {
             Debug.Log($"[HybridViews] --- step 5: destroy the remaining '{KeyCube}'/'{KeySphere}' entities, THEN release '{ChunkAlpha}'");
 
-            // Entities first. Releasing a chunk tears down live instances of a key that reaches
-            // zero, and nothing tells the registry or the entities about it — see the README.
+            // Destroying the entities is not enough on its own: the views are recycled by the
+            // despawn system, which has not run yet this frame. Ask for the release now and it is
+            // refused rather than silently destroying on-screen instances.
             var entityManager = _world.EntityManager;
             DestroyAll(entityManager, _cubeEntities);
 
+            var premature = _provisioner.ReleaseChunk(ChunkAlpha);
+            Debug.Log($"[HybridViews] releasing '{ChunkAlpha}' before the despawn system ran: " +
+                      $"Released={premature.Released}, LiveViewCount={premature.LiveViewCount}, " +
+                      $"BlockingKey='{premature.BlockingKey}'. Refused, and nothing changed.");
+
+            // Run the view group so the destroyed entities give their views back, then retry.
+            _world.GetExistingSystemManaged<ViewSystemGroup>().Update();
+
             Debug.Log($"[HybridViews] refcounts before release: {Describe()}");
             var released = _provisioner.ReleaseChunk(ChunkAlpha);
-            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkAlpha}') returned {released}. " +
+            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkAlpha}') returned Released={released.Released}. " +
                       $"'{KeyCube}' 1 -> 0, so the provider tore it down. " +
                       $"'{KeySphere}' 2 -> 1, so it was NOT torn down — chunk.beta still lists it, and the spheres keep rendering.");
             LogRefCounts("after releasing alpha");
@@ -211,7 +224,7 @@ namespace Cuvara.DOTS.Samples.HybridViews
             // A second release of the same chunk is a no-op, not a double decrement. Proving it is
             // cheaper than trusting it.
             var again = _provisioner.ReleaseChunk(ChunkAlpha);
-            Debug.Log($"[HybridViews] releasing '{ChunkAlpha}' a second time returned {again} (no-op), '{KeySphere}' still {_provisioner.GetReferenceCount(KeySphere)}.");
+            Debug.Log($"[HybridViews] releasing '{ChunkAlpha}' a second time returned Released={again.Released}, WasTracked={again.WasTracked} (no-op, not a refusal), '{KeySphere}' still {_provisioner.GetReferenceCount(KeySphere)}.");
         }
 
         private void ReleaseBeta()
@@ -221,6 +234,7 @@ namespace Cuvara.DOTS.Samples.HybridViews
             var entityManager = _world.EntityManager;
             DestroyAll(entityManager, _sphereEntities);
             DestroyAll(entityManager, _capsuleEntities);
+            _world.GetExistingSystemManaged<ViewSystemGroup>().Update(); // recycle before releasing
 
             _provisioner.ReleaseChunk(ChunkBeta);
             Debug.Log($"[HybridViews] ReleaseChunk('{ChunkBeta}') — '{KeySphere}' 1 -> 0 and '{KeyCapsule}' 1 -> 0, both torn down.");

@@ -61,7 +61,7 @@ The sample references only `Cuvara.DOTS.Runtime` plus `Unity.Entities`, `Unity.B
 
 | Not needed | Why it might look like it is |
 |---|---|
-| `Cuvara.DOTS.VContainer` | The bootstrap is a plain `MonoBehaviour`; `DotsViewBootstrap.Install` takes a `World`, not a container. |
+| `Cuvara.DOTS.DI` | The bootstrap is a plain `MonoBehaviour`; `DotsViewBootstrap.Install` takes a `World`, not a container. |
 | `Cuvara.DOTS.GameFoundation`, UniT, UniTask | `PrimitiveViewAssetProvider` is a complete provider in ~200 lines. `IViewAssetProvider` is `Task`-based, not UniTask-based, precisely so this is possible. |
 | Addressables | Views are primitives (or a serialized prefab reference). |
 | `Unity.Entities.Graphics` / Hybrid Renderer | Views are ordinary GameObjects rendered by the built-in path. That is the point of a *hybrid* view — no ECS renderer is involved. |
@@ -78,12 +78,13 @@ standalone claim, not a missing dependency.
   prefabs, which is exactly what `IViewAssetProvider`'s docs tell you not to build in a real
   project — adapt the pool you already have instead. It exists here to prove the package needs
   nothing else.
-- **Releasing a chunk while its entities are still alive leaves dangling links.** When a key's
-  refcount hits zero, the provider destroys live instances of that key, but the `EntityViewRegistry`
-  still holds their handles and the entities still carry an `EntityViewLink` that will never
-  resolve or respawn. The package has no chunk→entity ownership model, so the sample destroys the
-  entities *before* releasing the chunk. If your chunks unload while entities live on, you need to
-  despawn or re-request views yourself.
+- **Releasing a chunk needs its views recycled first — but the package now enforces that.** As of
+  0.5.0 `ReleaseChunk` refuses, logs, and changes nothing while live views stand on a key it would
+  tear down, returning `LiveViewCount` and a `BlockingKey`. Destroying the entities is not enough by
+  itself: the views come back only when the despawn system runs, so the sample destroys, ticks
+  `ViewSystemGroup`, then releases. Step 5 deliberately asks for the release too early first, to show
+  the refusal. Pass the `EntityViewRegistry` as the provisioner's `ILiveViewCounter` or none of this
+  protection exists.
 - **All timings are synchronous here.** The provider's `PrewarmAsync` completes in the same frame,
   so the "wait for the warm task" branch in `Update` never actually waits. With a real loader it
   would, and entities would sit view-less for longer than a couple of frames.

@@ -12,7 +12,7 @@ namespace Cuvara.DOTS.Views
     /// <para>
     /// Plain static helper taking a <see cref="World"/> — no DI types, so the core assembly stays
     /// installable with only the four pinned Unity dependencies. The VContainer extension in
-    /// <c>Cuvara.DOTS.VContainer</c> is a thin wrapper around this.
+    /// <c>Cuvara.DOTS.DI</c> is a thin wrapper around this.
     /// </para>
     /// <para>
     /// <b>Why the systems are created here rather than by Unity.</b> The default bootstrap creates

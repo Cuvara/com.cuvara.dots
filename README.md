@@ -10,16 +10,16 @@ provisioning. Not yet compiled against a Unity Editor — see `CHANGELOG.md`.
 | Path | Assembly | Optional? | Purpose |
 |---|---|---|---|
 | `Runtime/` | `Cuvara.DOTS.Runtime` | no | View link components, registry, spawn/despawn/sync systems, provisioning interfaces |
-| `Runtime.VContainer/` | `Cuvara.DOTS.VContainer` | yes — `CUVARA_DOTS_VCONTAINER` | `RegisterDotsViews()` |
 | `Runtime.GameFoundation/` | `Cuvara.DOTS.GameFoundation` | yes — UniT + UniTask defines | `IViewAssetProvider` over `IAssetsManager` + `IObjectPoolManager` |
 | `Runtime.GameLogic/` | `Cuvara.DOTS.GameLogic` | yes — `CUVARA_SHARED_GAMELOGIC` | `ISimulationModel` over `Shared.GameLogic`, plus all `Vec2`↔`float2` conversion |
+| `Runtime.DI/` | `Cuvara.DOTS.DI` | yes — `CUVARA_DOTS_VCONTAINER` | `RegisterDotsViews()`, `RegisterSimulationModel()`, MessagePipe binding |
 | `Editor/` | `Cuvara.DOTS.Editor` | no | Editor-only tooling and inspectors |
 | `Tests/Runtime/` | `Cuvara.DOTS.Tests.Runtime` | no | Play-mode tests |
 | `Tests/Editor/` | `Cuvara.DOTS.Tests.Editor` | no | Edit-mode tests |
 | `Tests/Editor.GameLogic/` | `Cuvara.DOTS.Tests.GameLogic` | yes — `CUVARA_SHARED_GAMELOGIC` | Constants parity + golden vectors through the seam |
 
 The two optional assemblies are gated by asmdef `versionDefines` + `defineConstraints`, the same
-way `com.gdk.core` gates `GDK_VCONTAINER`. With VContainer absent, `Cuvara.DOTS.VContainer` is not
+way `com.gdk.core` gates `GDK_VCONTAINER`. With VContainer absent, `Cuvara.DOTS.DI` is not
 compiled and the core still works — you construct `EntityViewRegistry` yourself and call
 `DotsViewBootstrap.Install(world, registry)`. With GameFoundation/UniT absent, you implement
 `IViewAssetProvider` over whatever pool you do have. **The core assembly references neither**, and
@@ -58,7 +58,10 @@ builder.RegisterDotsViews(viewRoot);
 
 // Warm everything a chunk needs, then drop it when the chunk unloads:
 await provisioner.PrewarmChunkAsync("chunk-12-4", new[] { "goblin", "torch" }, countPerKey: 8);
-provisioner.ReleaseChunk("chunk-12-4");   // keys another chunk still lists survive
+
+var result = provisioner.ReleaseChunk("chunk-12-4");   // keys another chunk still lists survive
+if (result.WasRefused)                                  // live views still stand on a key
+    Debug.Log($"{result.LiveViewCount} views still on '{result.BlockingKey}' — despawn them first");
 
 // Simulation seam — identical call sites with or without com.rpgmmo.shared-gamelogic:
 builder.RegisterSimulationModel();

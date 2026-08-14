@@ -1,5 +1,5 @@
 {
-    "name": "Cuvara.DOTS.VContainer",
+    "name": "Cuvara.DOTS.DI",
     "rootNamespace": "Cuvara.DOTS.DI",
     "references": [
         "Cuvara.DOTS.Runtime",
@@ -7,7 +7,9 @@
         "Unity.Collections",
         "Unity.Mathematics",
         "VContainer",
-        "Cuvara.DOTS.GameLogic"
+        "Cuvara.DOTS.GameLogic",
+        "MessagePipe",
+        "MessagePipe.VContainer"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -28,6 +30,11 @@
             "name": "com.rpgmmo.shared-gamelogic",
             "expression": "",
             "define": "CUVARA_SHARED_GAMELOGIC"
+        },
+        {
+            "name": "com.cysharp.messagepipe",
+            "expression": "",
+            "define": "CUVARA_DOTS_MESSAGEPIPE"
         }
     ],
     "noEngineReferences": false
