@@ -44,11 +44,24 @@ primitives, and the Console narrates what the chunk reference counts do while it
 ## How to run it
 
 1. Import the sample (Package Manager → Cuvara DOTS → Samples → *Hybrid Views* → Import).
-2. New empty scene. Add an empty GameObject, add the `HybridViewsSample` component.
-3. Make sure the scene has a camera looking at the origin from roughly `(0, 8, -14)` and a
-   directional light — the views are lit primitives and an unlit scene looks like nothing spawned.
-4. Press Play and read the Console. The whole timeline is ~28 s at the default 4 s step; lower
-   `Step Seconds` to move faster, raise it to read along.
+2. Open `Scenes/HybridViewsSample.unity` from the imported folder
+   (`Assets/Samples/Cuvara DOTS/<version>/Hybrid Views/Scenes/`).
+3. Press Play and read the Console. Nothing else to set up — the scene already has a camera aimed
+   at the origin, a directional light, and a **Hybrid Views Sample** GameObject carrying the
+   bootstrap with its three view definitions filled in.
+4. The whole timeline is ~28 s at the default 4 s step. Select the **Hybrid Views Sample** object
+   and lower `Step Seconds` to move faster, raise it to read the Console along the way;
+   `Warm Count Per Key` changes how many instances each chunk asks to have ready.
+
+The scene deliberately contains **no render-pipeline-specific components** — no
+`UniversalAdditionalCameraData`, no volume, no URP asset reference — so it opens under URP,
+HDRP or the built-in pipeline without a missing-script warning. URP attaches its own camera data at
+runtime. If your project's URP setup renders it dark, that is the project's lighting settings, not
+the sample.
+
+Prefer to build the scene yourself? Add an empty GameObject to any scene, add the
+`HybridViewsSample` component, and make sure there is a camera looking at the origin from roughly
+`(0, 9, -16)` plus a directional light. The component fills in its own default view definitions.
 
 Nothing is authored in a subscene and no baking is involved: the entities are created from script
 in `Start`, into `World.DefaultGameObjectInjectionWorld`.
@@ -72,6 +85,9 @@ standalone claim, not a missing dependency.
 
 ## Caveats, honestly
 
+- **The scene is hand-authored YAML.** It was written without a Unity Editor, from the field layout
+  of real Unity 6 scenes, and deliberately kept minimal (camera, light, one GameObject). If Unity
+  re-serializes it on first open with extra default fields, that is expected and harmless.
 - **This sample has never been compiled or run.** It was written without a Unity Editor available.
   Treat the first import as the first test.
 - **`PrimitiveViewAssetProvider` is not a pool you should ship.** It is a second pool over its own

@@ -139,6 +139,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared key survives the first release and is torn down only on the second. A cold key is left
   deferred on purpose so the "invisible for a few frames" behaviour can be seen rather than read
   about. Sample `README.md` states which optional packages are *not* needed and why.
+- **A ready-to-play scene for that sample**, `Samples~/HybridViews/Scenes/HybridViewsSample.unity`:
+  camera aimed at the origin, directional light, and the bootstrap GameObject with its three view
+  definitions already filled in — import, open, press Play. It carries **no render-pipeline-specific
+  components** (no `UniversalAdditionalCameraData`, no volume, no URP asset reference) so it opens
+  clean under URP, HDRP or the built-in pipeline. `.meta` files with fixed GUIDs ship alongside the
+  sample's files, because a scene that references a script by GUID breaks if the GUID is regenerated
+  at import time.
 - **Sample-revealed hazard, documented in the sample README:** releasing a chunk whose entities are
   still alive destroys those views through `IViewAssetProvider.Release` while the
   `EntityViewRegistry` keeps their handles and the entities keep an `EntityViewLink` that will never
