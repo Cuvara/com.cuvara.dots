@@ -55,7 +55,8 @@ binder.Tick(worldState, networkClient.UserId);
 ```
 
 Each replicated id becomes an entity carrying `NetworkEntity` (the wire id, the server's entity kind,
-and `IsLocal`), `NetworkEntityState` (the newest authoritative hp), a `LocalTransform`, and the
+and `IsLocal`), `NetworkEntityState` (the newest authoritative hp), `ReconciliationAnchor` (the newest
+authoritative position), a `LocalTransform`, and the
 `EntityViewRequest` + `ViewConfigRef` pair the spawn path already understands. Nothing about the
 presentation is hardcoded: the prefab, pool size, scale and offsets all come from the `ViewConfig` the
 resolver named.
@@ -82,6 +83,12 @@ Four things worth knowing before wiring it up:
 - **Wire hp lands on `NetworkEntityState`, not on `Health`.** `Health` means "destroy at zero" in
   this package, so mirroring server hp into it lets a client-side system destroy an entity the
   server still lists. Pass `writeHealth: true` if you want that anyway.
+- **A predictor takes the transform by adding `PredictedTransform`.** The adapter then writes only
+  `ReconciliationAnchor` — the last authoritative position, in world space — and leaves
+  `LocalTransform` alone, so each component has exactly one writer. Without the tag nothing changes:
+  the adapter positions every entity, which is what every build with no predictor needs. The anchor's
+  *tick* is not here and cannot be: `IEntityView.SetState` does not carry one. A predictor reads
+  `WorldState.AckTick` from netcode, which is documented as exactly that anchor.
 
 ## View configuration
 

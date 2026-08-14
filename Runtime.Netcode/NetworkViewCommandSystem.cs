@@ -113,6 +113,10 @@ namespace Cuvara.DOTS.Netcode
 
             entityManager.AddComponentData(entity, new NetworkEntityState { Hp = 0, MaxHp = 0 });
 
+            // Added at spawn with the same value LocalTransform got, so the component set is stable
+            // from the first frame and a predictor attaching later never reads a default.
+            entityManager.AddComponentData(entity, new ReconciliationAnchor { Position = position });
+
             // Both, not either: EntityViewSpawnSystem matches on EntityViewRequest and prefers the
             // config's key when a ViewConfigRef is present. Writing the resolved key into the
             // request as well means a catalog rebuild that invalidates the index degrades to the
@@ -148,16 +152,28 @@ namespace Cuvara.DOTS.Netcode
 
             var position = mapping.ToWorld(command.X, command.Y);
 
-            // Scale and rotation are read back rather than reset: the wire carries neither, so
-            // overwriting them would silently undo anything a consumer's system did.
-            var transform = entityManager.GetComponentData<LocalTransform>(entity);
-            transform.Position = position;
-            entityManager.SetComponentData(entity, transform);
+            // Always. This is what the server said, and it is the value a predictor rewinds to —
+            // separate from what the client is currently showing, exactly as NetworkEntityState is
+            // separate from Health.
+            entityManager.SetComponentData(entity, new ReconciliationAnchor { Position = position });
 
-            entityManager.SetComponentData(entity, new LocalToWorld
+            // The transform is written only while nothing else claims it. With a predictor owning
+            // LocalTransform, both writing it would work on every frame the predictor runs and snap
+            // the entity back to the server position on the frames it does not — intermittent, felt
+            // rather than seen, and blamed on the predictor. One writer per component instead.
+            if (!entityManager.HasComponent<PredictedTransform>(entity))
             {
-                Value = float4x4.TRS(position, transform.Rotation, new float3(transform.Scale, transform.Scale, transform.Scale)),
-            });
+                // Scale and rotation are read back rather than reset: the wire carries neither, so
+                // overwriting them would silently undo anything a consumer's system did.
+                var transform = entityManager.GetComponentData<LocalTransform>(entity);
+                transform.Position = position;
+                entityManager.SetComponentData(entity, transform);
+
+                entityManager.SetComponentData(entity, new LocalToWorld
+                {
+                    Value = float4x4.TRS(position, transform.Rotation, new float3(transform.Scale, transform.Scale, transform.Scale)),
+                });
+            }
 
             entityManager.SetComponentData(entity, new NetworkEntityState
             {
