@@ -39,10 +39,28 @@ namespace Cuvara.DOTS.Configuration
         /// Builds the blob from a library. A later call replaces the previous blob and disposes it.
         /// </summary>
         /// <remarks>
+        /// <para>
+        /// <b>Only safe to call between frames, and never while a tick is in flight.</b> Rebuilding
+        /// frees the previous blob immediately. Entities hold a <see cref="ViewConfigRef"/> index into
+        /// that blob, and a system reading the table mid-frame — or a Bursted job holding it — would
+        /// then be reading freed memory. That is not a clean exception: a Bursted read of a disposed
+        /// blob is undefined behaviour, so it can look like corrupt data or nothing at all rather than
+        /// a crash pointing at this line. The caller owns that sequencing; the package cannot detect it.
+        /// </para>
+        /// <para>
+        /// <b>A rebuild also invalidates every index handed out before it.</b> Indices are positions
+        /// in the new record list, so an entity still carrying a <see cref="ViewConfigRef"/> from
+        /// before a rebuild may now name a different archetype, or none. Re-resolve names to indices
+        /// after rebuilding — the spawn path warns and falls back to the request's own key for an
+        /// out-of-range index, but an index that is merely *wrong* rather than out of range cannot be
+        /// detected.
+        /// </para>
+        /// <para>
         /// Entries with no config, no name, or a duplicate name are skipped with a warning rather
         /// than throwing: one broken row in an asset should not stop a session from starting, and the
         /// warning names the row so it can be found. A duplicate name would otherwise make which
         /// config wins depend on list order.
+        /// </para>
         /// </remarks>
         public void Build(ViewArchetypeLibrary library)
         {
@@ -147,6 +165,12 @@ namespace Cuvara.DOTS.Configuration
             _indexByName.Clear();
         }
 
+        /// <remarks>
+        /// The previous blob is freed here. <c>Dispose</c> nulls the pointer in <see cref="_table"/>
+        /// itself, but any copy of that reference taken by a caller keeps its own now-dangling
+        /// pointer — which is why <see cref="Build"/> documents when it is safe to call rather than
+        /// trying to detect misuse.
+        /// </remarks>
         private void Rebuild()
         {
             if (_table.IsCreated) _table.Dispose();

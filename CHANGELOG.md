@@ -70,8 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FixedString64Bytes`; truncating stops one over-long key from failing catalog construction for the
   whole library. It warns by asset name, and a truncated key matches nothing in the pool, so the view
   never spawns rather than spawning something wrong.
-- **Compiled once, with one error fixed** (`CopyFromTruncated` needs `using Unity.Collections;` —
-  fully-qualified type names do not bring an extension method into scope). Tests not yet run.
+- **`ViewConfigCatalog.Build` is only safe between frames**, never while a tick is in flight: it frees
+  the previous blob immediately, and entities hold indices into it. A rebuild also invalidates every
+  index handed out before it — re-resolve names afterwards. The spawn path catches an out-of-range
+  index, but an index that is merely wrong cannot be detected.
+- **Compiles clean**, verified in the consuming project. EditMode 210 (was 205), PlayMode 15 (was 10).
 
 ## [0.6.3] - 2026-08-14
 

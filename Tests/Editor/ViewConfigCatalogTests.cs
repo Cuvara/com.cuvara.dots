@@ -117,21 +117,37 @@ namespace Cuvara.DOTS.Tests.Editor
             Object.DestroyImmediate(good);
         }
 
+        /// <summary>
+        /// Rebuilding produces a valid table, and disposing releases it.
+        /// </summary>
+        /// <remarks>
+        /// <b>Note what is deliberately not asserted here.</b> An earlier version of this test held a
+        /// copy of the first <see cref="Unity.Entities.BlobAssetReference{T}"/> and asserted
+        /// <c>IsCreated == false</c> on it after the rebuild. That assertion is unsound:
+        /// <c>BlobAssetReference&lt;T&gt;</c> is a struct, and its <c>Dispose</c> frees the memory and
+        /// then nulls <c>m_Ptr</c> <i>on the instance it was called on</i> (Entities
+        /// <c>Blobs.cs</c>). A copy taken beforehand keeps its own pointer and goes on reporting
+        /// <c>IsCreated == true</c> even though the memory is gone — so the test failed against
+        /// correct code. Pointer inequality is not a safe substitute either: the allocator may hand
+        /// the same address back for the new blob. What is observable is asserted; the release itself
+        /// is a single unconditional line in <c>Rebuild</c>.
+        /// </remarks>
         [Test]
-        public void Rebuilding_ReplacesTheBlob_AndDisposeReleasesIt()
+        public void Rebuilding_ProducesAValidTable_AndDisposeReleasesIt()
         {
-            var goblin = MakeConfig("goblin");
+            var goblin = MakeConfig("goblin", poolSize: 3);
             SetEntries(new ViewArchetypeLibrary.Entry { Name = "goblin", Config = goblin });
             _catalog.Build(_library);
-            var first = _catalog.Table;
 
             _catalog.Build(_library);
 
-            Assert.IsTrue(_catalog.Table.IsCreated);
-            Assert.IsFalse(first.IsCreated, "the previous blob must not be leaked");
+            Assert.IsTrue(_catalog.Table.IsCreated, "the rebuilt table is usable");
+            Assert.AreEqual(1, _catalog.Count);
+            Assert.AreEqual(3, _catalog[0].PoolSize, "and holds the rebuilt content, not stale memory");
+            Assert.AreEqual(0, _catalog.Table.Value.IndexOf(ViewArchetypeLibrary.HashName("goblin")));
 
             _catalog.Dispose();
-            Assert.IsFalse(_catalog.Table.IsCreated);
+            Assert.IsFalse(_catalog.Table.IsCreated, "the catalog no longer references a blob");
 
             Object.DestroyImmediate(goblin);
         }
