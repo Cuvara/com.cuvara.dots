@@ -2,16 +2,41 @@
 
 Shared DOTS/ECS building blocks for Cuvara projects — reusable components, systems, jobs and authoring helpers built on Unity Entities, Burst, Collections and Mathematics.
 
-**Status: scaffold — no runtime code yet.** The package currently ships only its assembly definitions, metadata and placeholder marker types so that the assemblies resolve and the test assemblies compile.
+**Status: early.** Ships the hybrid entity↔GameObject view layer and chunk-aware view
+provisioning. Not yet compiled against a Unity Editor — see `CHANGELOG.md`.
 
 ## Layout
 
-| Path | Assembly | Purpose |
-|---|---|---|
-| `Runtime/` | `Cuvara.DOTS.Runtime` | Shared components, systems and jobs |
-| `Editor/` | `Cuvara.DOTS.Editor` | Editor-only tooling and inspectors |
-| `Tests/Runtime/` | `Cuvara.DOTS.Tests.Runtime` | Play-mode tests |
-| `Tests/Editor/` | `Cuvara.DOTS.Tests.Editor` | Edit-mode tests |
+| Path | Assembly | Optional? | Purpose |
+|---|---|---|---|
+| `Runtime/` | `Cuvara.DOTS.Runtime` | no | View link components, registry, spawn/despawn/sync systems, provisioning interfaces |
+| `Runtime.VContainer/` | `Cuvara.DOTS.VContainer` | yes — `CUVARA_DOTS_VCONTAINER` | `RegisterDotsViews()` |
+| `Runtime.GameFoundation/` | `Cuvara.DOTS.GameFoundation` | yes — UniT + UniTask defines | `IViewAssetProvider` over `IAssetsManager` + `IObjectPoolManager` |
+| `Editor/` | `Cuvara.DOTS.Editor` | no | Editor-only tooling and inspectors |
+| `Tests/Runtime/` | `Cuvara.DOTS.Tests.Runtime` | no | Play-mode tests |
+| `Tests/Editor/` | `Cuvara.DOTS.Tests.Editor` | no | Edit-mode tests |
+
+The two optional assemblies are gated by asmdef `versionDefines` + `defineConstraints`, the same
+way `com.gdk.core` gates `GDK_VCONTAINER`. With VContainer absent, `Cuvara.DOTS.VContainer` is not
+compiled and the core still works — you construct `EntityViewRegistry` yourself and call
+`DotsViewBootstrap.Install(world, registry)`. With GameFoundation/UniT absent, you implement
+`IViewAssetProvider` over whatever pool you do have. **The core assembly references neither**, and
+installs against its four pinned Unity dependencies alone.
+
+## Usage
+
+```csharp
+// DI (VContainer + GameFoundation present), after RegisterGameFoundation:
+builder.RegisterGameFoundationViewProvisioning();
+builder.RegisterDotsViews(viewRoot);
+
+// Warm everything a chunk needs, then drop it when the chunk unloads:
+await provisioner.PrewarmChunkAsync("chunk-12-4", new[] { "goblin", "torch" }, countPerKey: 8);
+provisioner.ReleaseChunk("chunk-12-4");   // keys another chunk still lists survive
+
+// Give an entity a view:
+entityManager.AddComponentData(entity, new EntityViewRequest { ViewKey = "goblin" });
+```
 
 ## Installation
 

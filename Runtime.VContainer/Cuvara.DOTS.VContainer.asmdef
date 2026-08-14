@@ -1,0 +1,28 @@
+{
+    "name": "Cuvara.DOTS.VContainer",
+    "rootNamespace": "Cuvara.DOTS.DI",
+    "references": [
+        "Cuvara.DOTS.Runtime",
+        "Unity.Entities",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "VContainer"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "CUVARA_DOTS_VCONTAINER"
+    ],
+    "versionDefines": [
+        {
+            "name": "jp.hadashikick.vcontainer",
+            "expression": "",
+            "define": "CUVARA_DOTS_VCONTAINER"
+        }
+    ],
+    "noEngineReferences": false
+}
