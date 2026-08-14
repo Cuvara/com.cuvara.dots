@@ -63,14 +63,38 @@ every time a test is added.
   PRs into `main`, so a stacked PR — how this repo has actually been shipping, #5 based on #4 — is
   ungated there.
 
-### Unverified
+### Proven by running it, including the red run
 
-The scripts are exercised locally in both directions (a missing `.meta` caught; floors passing,
-failing on a compiled-out assembly, on an empty artifacts directory, on a missing directory, and on a
-passing floor with a failing test). **The workflow itself is proven by running it**: the first commit
-on this branch carries a deliberately failing test so the first run is red, and removing it is what
-makes the second run green. Until both runs exist in the PR's check history, the gate is unproven —
-by its own argument.
+The scripts were exercised locally in both directions first (a missing `.meta` caught; floors
+passing, and failing on a compiled-out assembly, an empty artifacts directory, a missing directory,
+and a met floor with a failing test inside it). Then the workflow was landed with a **deliberately
+failing test**, because a gate that has only ever been green is indistinguishable from one that
+cannot fail.
+
+**The red run earned its keep immediately — it found a bug in the gate itself.** Unity names the
+NUnit Assembly suite after the built *file*, `Cuvara.DOTS.Tests.Editor.dll`, while the floor specs
+name the *assembly*. Every floor therefore read `actual 0` while 95 test cases had in fact executed
+and were printed two lines above. The bug failed **closed** — permanently red, never falsely green —
+but the obvious fix for a permanently red gate is to lower the floors, which would have produced
+exactly the useless gate this file argues against. Nothing but a real run would have surfaced it.
+
+Real counts observed, and the floors now match them: `Tests.Editor` 30, `Tests.Runtime` 23,
+`Tests.GameLogic` **41** — not the 8 a static `[Test]` grep suggested, because its `[TestCase]`
+source expands — and `Tests.Netcode` 44 once netcode resolves.
+
+The red run also confirmed two things that had only ever been argued: `Cuvara.DOTS.Netcode.dll` **is**
+absent with no netcode installed (the standalone-install check, now automated rather than carried by
+hand), and a single failing test does fail the run through the floor script independently of any
+floor.
+
+### Found in another package
+
+`com.cuvara.netcode` 0.4.0 **does not compile standalone**: `Cuvara.Netcode.Runtime.asmdef` lists
+`VContainer` in `references` with no `defineConstraints` gate and no `package.json` dependency on it,
+so a project without VContainer gets `CS0246` from inside the package. netcode's own CI never sees it
+because its bootstrap manifest always installs VContainer. This workflow installs VContainer too, and
+says in a comment that doing so is a workaround for someone else's defect rather than a property of
+this package.
 
 ## [0.10.0] - 2026-08-14
 

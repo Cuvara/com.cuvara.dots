@@ -148,7 +148,7 @@ jobs:
           python3 package/.github/scripts/assert_test_floors.py artifacts \
             'Cuvara.DOTS.Tests.Editor>=30' \
             'Cuvara.DOTS.Tests.Runtime>=23' \
-            'Cuvara.DOTS.Tests.GameLogic>=8' \
+            'Cuvara.DOTS.Tests.GameLogic>=41' \
             'Cuvara.DOTS.Tests.Netcode==0'
 
       - uses: actions/upload-artifact@v4
@@ -160,10 +160,11 @@ jobs:
   # ---------------------------------------------------------------------------
   # Configuration 2: netcode installed.
   #
-  # UNPROVEN AT THE TIME OF WRITING: com.cuvara.netcode v0.4.0 is not tagged yet,
-  # so this job cannot resolve its dependency and is expected to be red until it
-  # is. The row is written now rather than trimmed to make the run green — a gate
-  # shaped to pass is the thing this whole file exists to argue against.
+  # Written before v0.4.0 was tagged, and deliberately left red rather than
+  # trimmed to make the run green — a gate shaped to pass is the thing this whole
+  # file argues against. The tag landed mid-run; the first attempt failed with
+  # "Could not clone ... make sure [v0.4.0] is a valid branch name, tag or full
+  # commit hash", which is the row doing its job.
   # ---------------------------------------------------------------------------
   test-with-netcode:
     name: Unity Tests (netcode 0.4.0)
@@ -173,6 +174,12 @@ jobs:
         with:
           path: package
 
+      # VContainer is installed here because com.cuvara.netcode 0.4.0 needs it to
+      # compile at all: Cuvara.Netcode.Runtime.asmdef references VContainer with
+      # no defineConstraint and no package.json dependency on it, so the package
+      # does not build standalone. Reported upstream. Installing it is legitimate
+      # for this job — the consuming project has VContainer — but it is a
+      # workaround for someone else's defect, not a property of this package.
       - name: Bootstrap test project
         run: |
           mkdir -p Assets ProjectSettings Packages
@@ -183,6 +190,7 @@ jobs:
               "com.cuvara.dots": "file:../package",
               "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.4.0",
               "com.cysharp.unitask": "2.5.10",
+              "jp.hadashikick.vcontainer": "1.16.8",
               "com.unity.entities": "1.4.8",
               "com.unity.burst": "1.8.30",
               "com.unity.collections": "2.6.8",
@@ -240,7 +248,7 @@ jobs:
           python3 package/.github/scripts/assert_test_floors.py artifacts \
             'Cuvara.DOTS.Tests.Editor>=30' \
             'Cuvara.DOTS.Tests.Runtime>=23' \
-            'Cuvara.DOTS.Tests.GameLogic>=8' \
+            'Cuvara.DOTS.Tests.GameLogic>=41' \
             'Cuvara.DOTS.Tests.Netcode>=44'
 
       - uses: actions/upload-artifact@v4

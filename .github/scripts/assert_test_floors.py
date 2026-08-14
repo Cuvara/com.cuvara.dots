@@ -66,7 +66,18 @@ def collect(results_dir):
             # suite's own total/passed attributes: those vary between Unity and
             # NUnit versions, and a missing attribute would read as zero, which
             # is indistinguishable from the failure this script exists to catch.
+            # Unity names the Assembly suite after the built file, e.g.
+            # "Cuvara.DOTS.Tests.Editor.dll". Specs are written with the assembly
+            # name, so the suffix is stripped here. Found by the deliberate red
+            # run: every floor read `actual 0` while 95 tests had in fact
+            # executed and were listed two lines above. The bug failed closed —
+            # the gate was permanently red rather than falsely green — but the
+            # obvious "fix" for a permanently red gate is to lower the floors,
+            # which would have produced exactly the useless gate this file
+            # argues against.
             name = suite.get("name") or "<unnamed>"
+            if name.endswith(".dll"):
+                name = name[:-4]
             for case in suite.iter("test-case"):
                 per_assembly[name][case.get("result") or "Unknown"] += 1
 
