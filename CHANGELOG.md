@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **Consumers must list this package in `testables` or its tests do not exist for them.** Written up
+  in the README install section. A git-URL install lives in `Library/PackageCache` and Unity builds a
+  package's test assemblies only when the project's `Packages/manifest.json` names it in `testables`;
+  the entry this package declares in its own `package.json` does not substitute. The failure is
+  silent — no `Cuvara.DOTS.Tests.*` in `Library/ScriptAssemblies`, and a Test Runner filtered to
+  `Cuvara.DOTS` reporting *no tests found*, which is indistinguishable from a package that ships no
+  tests. Editing the manifest is necessary but not sufficient: an Editor that already resolved the
+  package caches that resolution until restarted, so verification is the presence of
+  `Cuvara.DOTS.Tests.Editor.dll`, not the manifest edit.
+- README install snippets updated from `#v0.1.0` to `#v0.6.2`; the old ones pinned a tag from before
+  any runtime code existed.
+- *Known debts* in `ROADMAP.md` upgraded from suspicion to fact: measured in the consuming project,
+  a full EditMode run passes 139/139 while `Cuvara.DOTS` contributes **zero** — those tests belong to
+  other packages. Also records that `Cuvara.DOTS.Tests.GameLogic` carries a second, deliberate gate
+  (`CUVARA_SHARED_GAMELOGIC` plus a `Shared.GameLogic` assembly reference), so it can legitimately
+  contribute no cases when the optional dependency is absent, and that no test references
+  `Cuvara.DOTS.DI` or `Cuvara.DOTS.GameFoundation`.
+
 ### Changed
 
 - **`ROADMAP.md` rewritten from the tree instead of from the plan.** It described the package as

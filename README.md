@@ -82,18 +82,43 @@ entityManager.AddComponentData(entity, new EntityViewRequest { ViewKey = "goblin
 Add to your project's `Packages/manifest.json`:
 
 ```json
-"com.cuvara.dots": "https://github.com/Cuvara/com.cuvara.dots.git#v0.1.0"
+"com.cuvara.dots": "https://github.com/Cuvara/com.cuvara.dots.git#v0.6.2"
 ```
 
 Or via **Window > Package Manager > + > Add package from git URL**:
 
 ```
-https://github.com/Cuvara/com.cuvara.dots.git#v0.1.0
+https://github.com/Cuvara/com.cuvara.dots.git#v0.6.2
 ```
 
 ### Embedded
 
 Clone into your project's `Packages/com.cuvara.dots/` folder for local development.
+
+### Running this package's tests in your project
+
+A git-URL install lands in `Library/PackageCache`, and **Unity does not compile a package's test
+assemblies unless the project asks for them**. Nothing warns you: the tests do not fail, they are
+simply absent — no `Cuvara.DOTS.Tests.*` assembly in `Library/ScriptAssemblies`, and the Test Runner
+filtered to `Cuvara.DOTS` reports *no tests found*, which reads exactly like a package with no tests.
+
+Add the package to `testables` in your project's `Packages/manifest.json`, as a sibling of
+`dependencies`:
+
+```json
+{
+  "dependencies": { "com.cuvara.dots": "https://github.com/Cuvara/com.cuvara.dots.git#v0.6.2" },
+  "testables": [ "com.cuvara.dots" ]
+}
+```
+
+The `testables` entry this package declares in its own `package.json` does **not** substitute for
+that: the consuming project's manifest is what makes the Test Runner build the assemblies.
+
+Editing the manifest is not always enough on its own — an Editor that has already resolved the
+package keeps its resolution cached, so the assemblies stay missing until the Editor is restarted.
+Verify by checking that `Library/ScriptAssemblies/Cuvara.DOTS.Tests.Editor.dll` exists, not by
+trusting the manifest edit.
 
 ## Requirements
 

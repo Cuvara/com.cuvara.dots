@@ -64,10 +64,27 @@ the first time.
 
 ## Known debts
 
-- **The test suite has never been executed.** Eight test files exist and compile; no run has been
-  recorded. Until one is, "tested" means "written".
+- **The test assemblies are not compiled in the consuming project, so no test in this package has
+  ever run.** Established, not suspected: a full EditMode run in the consumer passed 139/139, but
+  filtering to `Cuvara.DOTS` returned *no tests found*, and `Library/ScriptAssemblies` holds no
+  `Cuvara.DOTS.Tests.*` assembly — those 139 belong to other packages. "Tested" here does not mean
+  "written but unrun"; it means the code is not built at all.
+  - **Cause:** a git-URL install lives in `Library/PackageCache`, and Unity only builds a package's
+    test assemblies when the consuming project lists it in `testables` in `Packages/manifest.json`.
+    The `testables` entry in this package's own `package.json` does not substitute for that.
+    Documented in the README install section, because every consumer hits it and none will guess it:
+    a package whose tests silently do not exist in the consumer is the same class of failure as a
+    missing `.meta`.
+  - Editing the manifest is necessary but not always sufficient — an Editor that already resolved
+    the package caches that resolution, so the assemblies stay absent until it restarts. Verify by
+    the presence of `Library/ScriptAssemblies/Cuvara.DOTS.Tests.Editor.dll`, not by the manifest.
+- **`Cuvara.DOTS.Tests.GameLogic` has a second gate** beyond `UNITY_INCLUDE_TESTS`: it is also
+  constrained on `CUVARA_SHARED_GAMELOGIC`, defined only when `com.rpgmmo.shared-gamelogic` is
+  installed, and it references that package's `Shared.GameLogic` assembly. Correct by design — the
+  tests cannot run without the library they compare against — but it means this file can contribute
+  zero cases while every other gate is green, and that is not a failure to chase.
 - **The MessagePipe and GameFoundation adapters are unexercised by any test.** No test assembly
-  declares either dependency, so both are compile-checked only.
+  references `Cuvara.DOTS.DI` or `Cuvara.DOTS.GameFoundation`, so both are compile-checked only.
 - **`Cuvara.DOTS.Editor` contains only `PackageMarkerEditor.cs`** — the assembly exists to hold
   editor tooling that has not been written.
 - **`.meta` files are load-bearing.** A git-URL install lands in `Library/PackageCache`, which Unity
