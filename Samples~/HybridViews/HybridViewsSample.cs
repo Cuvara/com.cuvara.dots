@@ -247,7 +247,9 @@ namespace Cuvara.DOTS.Samples.HybridViews
             Debug.Log($"[HybridViews] --- done. instantiated={_provider.InstantiateCount}, acquires={_provider.AcquireCount}, " +
                       $"recycles={_provider.ReleaseInstanceCount}, key teardowns={_provider.ReleaseKeyCount}, " +
                       $"live views={_registry.Count}, tracked chunks={_provisioner.ChunkCount}, tracked keys={_provisioner.TrackedKeyCount}. " +
-                      "Acquires above instantiations is the pool doing its job.");
+                      "Every acquire is matched by a recycle and no view outlives the run; instantiations " +
+                      "equal what prewarming asked for (4 per key), not what was spawned, because warming " +
+                      "deliberately over-provisions.");
         }
 
         // ---------------------------------------------------------------- helpers

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Verified
+
+- **The package has now been compiled and run in a real Unity 6 Editor** (6000.3.9f1, URP project,
+  embedded install). Every line below is an observed result, not an expectation.
+  - `Cuvara.DOTS.Runtime`, `.DI`, `.GameFoundation`, `.GameLogic`, `.Editor` and the sample assembly
+    compile with **zero errors** at 0.6.2. The 0.6.2 asmdef fix is sufficient on its own — no further
+    references were needed.
+  - `Samples~/HybridViews` imports, its scene opens with all three root objects, and the
+    `HybridViewsSample` MonoBehaviour **binds** (pinned `.meta` GUIDs survive the import) with its
+    serialized values intact: `_stepSeconds = 4`, `_warmCountPerKey = 4`, three view definitions.
+  - The full sample timeline ran green in play mode. Observed: key de-duplication (`cube` listed
+    twice → refcount 1); 10 entities spawned with 2 deferred on the cold key; shared `sphere`
+    reaching refcount 2; **cascade release** reporting `Released=True, ViewsDespawned=2` while
+    `sphere` survived at refcount 1; a second release returning `Released=False, WasTracked=False`
+    (no-op, not a refusal); and a clean finish — `instantiated=12, acquires=10, recycles=10,
+    key teardowns=3, live views=0, tracked chunks=0`. Every acquire was matched by a recycle.
+  - Transform sync confirmed by sampling live view positions mid-run: cubes orbiting at r≈4, y=0 and
+    spheres at r≈6.5, y=1.5, matching the `OrbitMotion` values the entities carry.
+
+### Fixed
+
+- The sample's closing log line claimed "acquires above instantiations is the pool doing its job",
+  which the real run contradicts: prewarming instantiates 4 per key up front, so instantiations
+  (12) exceed acquires (10) by design. It now states what the numbers actually mean.
+
+### Notes
+
+- **Running the sample from an unfocused Editor needs `Application.runInBackground`.** With the
+  Editor in the background the player loop does not tick — the observed symptom is play mode active
+  with `Time.time == 0` and `frameCount == 1`, so the sample logs step 1 and appears to hang. This is
+  Editor behaviour, not a package or sample defect.
+
 ## [0.6.2] - 2026-08-14
 
 ### Fixed
