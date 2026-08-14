@@ -4,9 +4,9 @@ namespace Cuvara.DOTS.Provisioning
     /// Outcome of <see cref="ChunkViewProvisioner.ReleaseChunk"/>.
     /// </summary>
     /// <remarks>
-    /// A struct rather than a <c>bool</c> because there are three distinct outcomes a caller must be
-    /// able to tell apart — released, never tracked, and refused because views are still live — and
-    /// a bool collapses the last two into "false", which is how a streaming bug hides.
+    /// A struct rather than a <c>bool</c> because a caller has to be able to tell a release from a
+    /// no-op on an unknown chunk, and because <see cref="ViewsDespawned"/> is the number that says
+    /// whether anything on screen just went away.
     /// </remarks>
     public readonly struct ChunkReleaseResult
     {
@@ -17,23 +17,20 @@ namespace Cuvara.DOTS.Provisioning
         public readonly bool WasTracked;
 
         /// <summary>
-        /// Live views standing on the chunk's keys. Non-zero means the release was refused and
-        /// nothing changed — despawn those entities and call again.
+        /// Views the cascade despawned. Their entities survive without views; see
+        /// <see cref="Messaging.ChunkCascadeReleased"/>.
         /// </summary>
-        public readonly int LiveViewCount;
+        public readonly int ViewsDespawned;
 
-        /// <summary>One key that was still in use, for the log line. Null when nothing blocked.</summary>
-        public readonly string BlockingKey;
+        /// <summary>Distinct keys actually released, i.e. those whose reference count reached zero.</summary>
+        public readonly int KeysReleased;
 
-        public ChunkReleaseResult(bool released, bool wasTracked, int liveViewCount, string blockingKey)
+        public ChunkReleaseResult(bool released, bool wasTracked, int viewsDespawned, int keysReleased)
         {
             Released = released;
             WasTracked = wasTracked;
-            LiveViewCount = liveViewCount;
-            BlockingKey = blockingKey;
+            ViewsDespawned = viewsDespawned;
+            KeysReleased = keysReleased;
         }
-
-        /// <summary>True when the call was refused rather than being a no-op on an unknown chunk.</summary>
-        public bool WasRefused => WasTracked && !Released;
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Cuvara.DOTS.Messaging;
 using Cuvara.DOTS.Provisioning;
 using NUnit.Framework;
 using UnityEngine.TestTools;
@@ -6,38 +7,66 @@ using UnityEngine.TestTools;
 namespace Cuvara.DOTS.Tests.Editor
 {
     /// <summary>
-    /// A chunk release must not destroy assets a live view is standing on.
+    /// A chunk release must take its views down before releasing the assets they stand on, and must
+    /// leave nothing pointing at what it released.
     /// </summary>
     /// <remarks>
     /// The regression these cover: reference counting tracks <i>chunks</i>, and a live view is held
-    /// by an entity the provisioner has never heard of. Before 0.5.0, unloading a chunk while its
-    /// entities were alive destroyed their pooled instances while the registry kept the handles and
-    /// the entities kept an <c>EntityViewLink</c> that could never resolve — views silently gone,
+    /// by an entity the provisioner has never heard of. Before the cascade, unloading a chunk while
+    /// its entities were alive destroyed their pooled instances while the registry kept the handles
+    /// and the entities kept an <c>EntityViewLink</c> that could never resolve — views silently gone,
     /// no error, no recovery. That is the ordinary streaming path, not an exotic case.
+    /// <para>
+    /// These exercise the provisioner half against a recording sink. The other half — that the sink
+    /// really does route through the ordinary despawn path and clear the links — is covered by
+    /// <c>EntityViewCascadeTests</c>, which needs a real World.
+    /// </para>
     /// </remarks>
     public sealed class ChunkReleaseSafetyTests
     {
-        /// <summary>Stands in for <c>EntityViewRegistry</c> without needing a World or GameObjects.</summary>
-        private sealed class FakeLiveViewCounter : ILiveViewCounter
+        /// <summary>Records what the provisioner asked to be cascaded, and in what order.</summary>
+        private sealed class RecordingCascadeSink : IViewCascadeSink
         {
-            public readonly Dictionary<string, int> Live = new Dictionary<string, int>();
+            public readonly List<string> CascadedKeys = new List<string>();
+            public readonly Dictionary<string, int> ViewsPerKey = new Dictionary<string, int>();
+            public int Calls;
 
-            public int CountLiveViews(string key) => Live.TryGetValue(key, out var count) ? count : 0;
+            public int CascadeDespawn(IReadOnlyCollection<string> keys)
+            {
+                Calls++;
+                var despawned = 0;
+                foreach (var key in keys)
+                {
+                    CascadedKeys.Add(key);
+                    if (ViewsPerKey.TryGetValue(key, out var count)) despawned += count;
+                }
+
+                return despawned;
+            }
+        }
+
+        /// <summary>Captures published messages so the "not silent" requirement can be asserted.</summary>
+        private sealed class CapturingPublisher<T> : IDotsPublisher<T>
+        {
+            public readonly List<T> Published = new List<T>();
+
+            public void Publish(T message) => Published.Add(message);
         }
 
         private RecordingViewAssetProvider _provider;
-        private FakeLiveViewCounter _live;
+        private RecordingCascadeSink _sink;
+        private CapturingPublisher<ChunkCascadeReleased> _cascadePublisher;
         private ChunkViewProvisioner _provisioner;
 
         [SetUp]
         public void SetUp()
         {
             _provider = new RecordingViewAssetProvider();
-            _live = new FakeLiveViewCounter();
-            _provisioner = new ChunkViewProvisioner(_provider, _live);
+            _sink = new RecordingCascadeSink();
+            _cascadePublisher = new CapturingPublisher<ChunkCascadeReleased>();
+            _provisioner = new ChunkViewProvisioner(_provider, _sink, cascadePublisher: _cascadePublisher);
 
-            // A refused release logs a warning on purpose; the tests assert the return value, and an
-            // expected warning must not be read as an unexpected one.
+            // A cascade logs on purpose; an expected log must not read as an unexpected one.
             LogAssert.ignoreFailingMessages = true;
         }
 
@@ -45,90 +74,109 @@ namespace Cuvara.DOTS.Tests.Editor
         public void TearDown() => LogAssert.ignoreFailingMessages = false;
 
         [Test]
-        public void ReleasingAChunkWithLiveViews_IsRefused_AndChangesNothing()
+        public void ReleasingAChunkWithLiveViews_CascadesThenReleases_AndPublishesTheCount()
         {
             _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin", "torch" });
-            _live.Live["goblin"] = 2;
-
-            var result = _provisioner.ReleaseChunk("chunk-a");
-
-            Assert.IsFalse(result.Released);
-            Assert.IsTrue(result.WasTracked);
-            Assert.IsTrue(result.WasRefused, "distinguishable from an unknown chunk");
-            Assert.AreEqual(2, result.LiveViewCount);
-            Assert.AreEqual("goblin", result.BlockingKey);
-
-            // Nothing released, nothing decremented — the caller can retry after despawning.
-            CollectionAssert.IsEmpty(_provider.Released);
-            Assert.AreEqual(1, _provisioner.GetReferenceCount("goblin"));
-            Assert.AreEqual(1, _provisioner.GetReferenceCount("torch"));
-            Assert.IsTrue(_provisioner.IsChunkTracked("chunk-a"));
-        }
-
-        [Test]
-        public void ReleasingAfterTheViewsAreDespawned_Succeeds()
-        {
-            _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin" });
-            _live.Live["goblin"] = 1;
-
-            Assert.IsFalse(_provisioner.ReleaseChunk("chunk-a").Released);
-
-            _live.Live.Remove("goblin"); // the entity was despawned
-
-            Assert.IsTrue(_provisioner.ReleaseChunk("chunk-a").Released);
-            CollectionAssert.Contains(_provider.Released, "goblin");
-            Assert.AreEqual(0, _provisioner.TrackedKeyCount);
-        }
-
-        [Test]
-        public void LiveViewsOnAKeyAnotherChunkAlsoHolds_DoNotBlock()
-        {
-            // Releasing chunk-a would not tear "goblin" down — chunk-b still references it — so the
-            // live views are in no danger and the release must not be refused.
-            _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin", "torch" });
-            _provisioner.PrewarmChunkAsync("chunk-b", new[] { "goblin" });
-            _live.Live["goblin"] = 5;
+            _sink.ViewsPerKey["goblin"] = 3;
 
             var result = _provisioner.ReleaseChunk("chunk-a");
 
             Assert.IsTrue(result.Released);
-            CollectionAssert.Contains(_provider.Released, "torch");
-            CollectionAssert.DoesNotContain(_provider.Released, "goblin");
+            Assert.IsTrue(result.WasTracked);
+            Assert.AreEqual(3, result.ViewsDespawned);
+            Assert.AreEqual(2, result.KeysReleased);
+
+            // Both halves happened, and the assets did go.
+            CollectionAssert.AreEquivalent(new[] { "goblin", "torch" }, _sink.CascadedKeys);
+            CollectionAssert.AreEquivalent(new[] { "goblin", "torch" }, _provider.Released);
+            Assert.AreEqual(0, _provisioner.TrackedKeyCount);
+            Assert.IsFalse(_provisioner.IsChunkTracked("chunk-a"));
+
+            // Surviving without a view is invisible unless it is announced.
+            Assert.AreEqual(1, _cascadePublisher.Published.Count);
+            Assert.AreEqual("chunk-a", _cascadePublisher.Published[0].ChunkId);
+            Assert.AreEqual(2, _cascadePublisher.Published[0].KeyCount);
+            Assert.AreEqual(3, _cascadePublisher.Published[0].ViewsDespawned);
+        }
+
+        [Test]
+        public void SharedKey_IsNeitherCascadedNorReleased_WhenAnotherChunkStillHoldsIt()
+        {
+            _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin", "torch" });
+            _provisioner.PrewarmChunkAsync("chunk-b", new[] { "goblin" });
+            _sink.ViewsPerKey["goblin"] = 5;
+            _sink.ViewsPerKey["torch"] = 2;
+
+            var result = _provisioner.ReleaseChunk("chunk-a");
+
+            // "goblin" is not being released, so its views are in no danger and must be left alone.
+            CollectionAssert.AreEquivalent(new[] { "torch" }, _sink.CascadedKeys);
+            CollectionAssert.AreEquivalent(new[] { "torch" }, _provider.Released);
+            Assert.AreEqual(2, result.ViewsDespawned, "only torch's views");
+            Assert.AreEqual(1, result.KeysReleased);
             Assert.AreEqual(1, _provisioner.GetReferenceCount("goblin"));
         }
 
         [Test]
-        public void ReleaseAll_ReportsHowManyChunksItCouldNotRelease()
+        public void ReleaseWithNoLiveViews_BehavesExactlyAsBefore()
         {
             _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin" });
-            _provisioner.PrewarmChunkAsync("chunk-b", new[] { "torch" });
-            _live.Live["goblin"] = 1;
 
-            var refused = _provisioner.ReleaseAll();
+            var result = _provisioner.ReleaseChunk("chunk-a");
 
-            Assert.AreEqual(1, refused);
-            Assert.IsTrue(_provisioner.IsChunkTracked("chunk-a"), "still held open by a live view");
-            Assert.IsFalse(_provisioner.IsChunkTracked("chunk-b"));
+            Assert.IsTrue(result.Released);
+            Assert.AreEqual(0, result.ViewsDespawned);
+            CollectionAssert.Contains(_provider.Released, "goblin");
+            Assert.AreEqual(0, _provisioner.TrackedKeyCount);
+
+            // Nothing to announce when nothing was torn down.
+            CollectionAssert.IsEmpty(_cascadePublisher.Published);
         }
 
         [Test]
-        public void WithoutALiveViewCounter_ReleaseIsUnconditional()
+        public void UnknownChunk_DoesNotCascade()
         {
-            // Documented as unsafe for streaming: with no counter the provisioner cannot see live
-            // views. Pinned so the hazard is a decision someone made, not an accident.
+            var result = _provisioner.ReleaseChunk("never-warmed");
+
+            Assert.IsFalse(result.Released);
+            Assert.IsFalse(result.WasTracked);
+            Assert.AreEqual(0, _sink.Calls, "nothing to tear down for a chunk that never existed");
+        }
+
+        [Test]
+        public void ReleaseAll_ReportsTotalViewsCascaded()
+        {
+            _provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin" });
+            _provisioner.PrewarmChunkAsync("chunk-b", new[] { "torch" });
+            _sink.ViewsPerKey["goblin"] = 2;
+            _sink.ViewsPerKey["torch"] = 1;
+
+            Assert.AreEqual(3, _provisioner.ReleaseAll());
+            Assert.AreEqual(0, _provisioner.ChunkCount);
+            Assert.AreEqual(0, _provisioner.TrackedKeyCount);
+        }
+
+        [Test]
+        public void WithoutACascadeSink_ReleaseStillHappens_AndIsDocumentedAsUnsafe()
+        {
+            // Pinned so the hazard is a decision someone made rather than an accident: with no sink
+            // the provisioner cannot reach the view layer at all.
             var provisioner = new ChunkViewProvisioner(_provider);
             provisioner.PrewarmChunkAsync("chunk-a", new[] { "goblin" });
 
-            Assert.IsTrue(provisioner.ReleaseChunk("chunk-a").Released);
+            var result = provisioner.ReleaseChunk("chunk-a");
+
+            Assert.IsTrue(result.Released);
+            Assert.AreEqual(0, result.ViewsDespawned);
             CollectionAssert.Contains(_provider.Released, "goblin");
         }
 
         [Test]
-        public void IsChunkTracked_IsTrueBeforeLoadsFinish_IsChunkLoadedIsNot()
+        public void IsChunkTracked_IsNotAClaimAboutLoading()
         {
             // The rename exists because the old name (IsChunkWarm) reads as "loads finished", which
-            // it never meant. The fake provider completes synchronously, so the only way to observe
-            // the distinction here is that both are true after the awaited prewarm.
+            // it never meant. The fake provider completes synchronously, so both are true after the
+            // awaited prewarm; the distinction is in what each name promises.
             Assert.IsFalse(_provisioner.IsChunkTracked("chunk-a"));
             Assert.IsFalse(_provisioner.IsChunkLoaded("chunk-a"));
 

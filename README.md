@@ -59,9 +59,10 @@ builder.RegisterDotsViews(viewRoot);
 // Warm everything a chunk needs, then drop it when the chunk unloads:
 await provisioner.PrewarmChunkAsync("chunk-12-4", new[] { "goblin", "torch" }, countPerKey: 8);
 
+// Views still standing on the chunk's expiring keys are despawned first, then the assets go.
+// The entities survive without views; a ChunkCascadeReleased message reports how many.
 var result = provisioner.ReleaseChunk("chunk-12-4");   // keys another chunk still lists survive
-if (result.WasRefused)                                  // live views still stand on a key
-    Debug.Log($"{result.LiveViewCount} views still on '{result.BlockingKey}' — despawn them first");
+Debug.Log($"released {result.KeysReleased} keys, cascaded {result.ViewsDespawned} views");
 
 // Simulation seam — identical call sites with or without com.rpgmmo.shared-gamelogic:
 builder.RegisterSimulationModel();

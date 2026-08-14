@@ -29,7 +29,7 @@ namespace Cuvara.DOTS.DI
     public static class MessagePipeVContainer
     {
         /// <summary>
-        /// Registers the four package message types. Call after MessagePipe's own
+        /// Registers the five package message types. Call after MessagePipe's own
         /// <c>RegisterMessagePipe()</c> and its <c>RegisterMessageBroker&lt;T&gt;</c> calls for these
         /// types; without them the resolve of <c>IPublisher&lt;T&gt;</c> fails at build time rather
         /// than silently doing nothing.
@@ -40,6 +40,7 @@ namespace Cuvara.DOTS.DI
             RegisterMessage<ViewDespawned>(builder);
             RegisterMessage<ChunkWarmed>(builder);
             RegisterMessage<ChunkReleased>(builder);
+            RegisterMessage<ChunkCascadeReleased>(builder);
             return builder;
         }
 

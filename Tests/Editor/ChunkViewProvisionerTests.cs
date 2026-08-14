@@ -90,7 +90,6 @@ namespace Cuvara.DOTS.Tests.Editor
             var unknown = _provisioner.ReleaseChunk("never-warmed");
             Assert.IsFalse(unknown.Released);
             Assert.IsFalse(unknown.WasTracked, "an unknown chunk is a no-op, not a refusal");
-            Assert.IsFalse(unknown.WasRefused);
 
             Assert.IsTrue(_provisioner.ReleaseChunk("chunk-a").Released);
             Assert.IsFalse(_provisioner.ReleaseChunk("chunk-a").Released, "second release must not decrement again");

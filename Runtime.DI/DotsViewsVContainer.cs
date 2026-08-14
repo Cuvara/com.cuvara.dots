@@ -45,15 +45,25 @@ namespace Cuvara.DOTS.DI
                     viewRoot,
                     container.Resolve<IDotsPublisher<ViewSpawned>>(),
                     container.Resolve<IDotsPublisher<ViewDespawned>>()),
-                Lifetime.Singleton).AsSelf().As<ILiveViewCounter>();
+                Lifetime.Singleton).AsSelf();
 
-            // The registry is passed to the provisioner as its ILiveViewCounter. Without it the
-            // provisioner cannot see live views and would release chunk assets out from under them.
+            // Resolved lazily, after the build callback has installed the systems: the cascade needs
+            // the world, and the world's ECB system has to exist before a release can record into it.
+            builder.Register<IViewCascadeSink>(
+                container => new EntityViewCascade(
+                    world ?? World.DefaultGameObjectInjectionWorld,
+                    container.Resolve<EntityViewRegistry>()),
+                Lifetime.Singleton);
+
+            // Without the cascade sink the provisioner would release assets that live views are
+            // still standing on — the dangling-link bug. This is the only call site that can supply
+            // it, which is why RegisterGameFoundationViewProvisioning does not register a provisioner.
             builder.Register(container => new ChunkViewProvisioner(
                     container.Resolve<IViewAssetProvider>(),
-                    container.Resolve<EntityViewRegistry>(),
+                    container.Resolve<IViewCascadeSink>(),
                     container.Resolve<IDotsPublisher<ChunkWarmed>>(),
-                    container.Resolve<IDotsPublisher<ChunkReleased>>()),
+                    container.Resolve<IDotsPublisher<ChunkReleased>>(),
+                    container.Resolve<IDotsPublisher<ChunkCascadeReleased>>()),
                 Lifetime.Singleton).AsSelf();
 
             // Deferred to build time: the DOTS world and the container are created independently,

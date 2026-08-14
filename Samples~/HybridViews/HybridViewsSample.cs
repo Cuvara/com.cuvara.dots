@@ -55,6 +55,7 @@ namespace Cuvara.DOTS.Samples.HybridViews
         private World _world;
         private EntityViewRegistry _registry;
         private PrimitiveViewAssetProvider _provider;
+        private EntityViewCascade _cascade;
         private ChunkViewProvisioner _provisioner;
         private Transform _viewRoot;
 
@@ -82,10 +83,11 @@ namespace Cuvara.DOTS.Samples.HybridViews
 
             _provider = new PrimitiveViewAssetProvider(_definitions, _viewRoot);
             _registry = new EntityViewRegistry(_provider, _viewRoot);
-            // The registry is the ILiveViewCounter: it is what lets ReleaseChunk refuse to tear
-            // down assets that live views are still standing on. Omitting it is what the 0.4.0
-            // sample had to work around.
-            _provisioner = new ChunkViewProvisioner(_provider, _registry);
+            // The cascade sink is what makes ReleaseChunk safe: it takes the chunk's views down
+            // through the ordinary despawn path before the assets are released. Without it the
+            // provisioner cannot reach the view layer and would strand the links.
+            _cascade = new EntityViewCascade(_world, _registry);
+            _provisioner = new ChunkViewProvisioner(_provider, _cascade);
 
             // The one call that wires the package into a world. Everything else below is ordinary
             // ECS code that happens to add EntityViewRequest.
@@ -200,23 +202,15 @@ namespace Cuvara.DOTS.Samples.HybridViews
         {
             Debug.Log($"[HybridViews] --- step 5: destroy the remaining '{KeyCube}'/'{KeySphere}' entities, THEN release '{ChunkAlpha}'");
 
-            // Destroying the entities is not enough on its own: the views are recycled by the
-            // despawn system, which has not run yet this frame. Ask for the release now and it is
-            // refused rather than silently destroying on-screen instances.
+            // No manual teardown: the cubes stay alive on purpose, so the release has to cascade.
+            // Their views come down, their links are cleared, and the entities survive with no view
+            // — which is exactly what a streaming unload means.
             var entityManager = _world.EntityManager;
-            DestroyAll(entityManager, _cubeEntities);
-
-            var premature = _provisioner.ReleaseChunk(ChunkAlpha);
-            Debug.Log($"[HybridViews] releasing '{ChunkAlpha}' before the despawn system ran: " +
-                      $"Released={premature.Released}, LiveViewCount={premature.LiveViewCount}, " +
-                      $"BlockingKey='{premature.BlockingKey}'. Refused, and nothing changed.");
-
-            // Run the view group so the destroyed entities give their views back, then retry.
-            _world.GetExistingSystemManaged<ViewSystemGroup>().Update();
 
             Debug.Log($"[HybridViews] refcounts before release: {Describe()}");
             var released = _provisioner.ReleaseChunk(ChunkAlpha);
-            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkAlpha}') returned Released={released.Released}. " +
+            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkAlpha}') returned Released={released.Released}, " +
+                      $"ViewsDespawned={released.ViewsDespawned} (cascaded, the cube entities are still alive). " +
                       $"'{KeyCube}' 1 -> 0, so the provider tore it down. " +
                       $"'{KeySphere}' 2 -> 1, so it was NOT torn down — chunk.beta still lists it, and the spheres keep rendering.");
             LogRefCounts("after releasing alpha");
@@ -232,12 +226,15 @@ namespace Cuvara.DOTS.Samples.HybridViews
             Debug.Log($"[HybridViews] --- step 6: destroy the rest, then release '{ChunkBeta}'");
 
             var entityManager = _world.EntityManager;
+            // The other half of the story: these entities are destroyed first, so the release finds
+            // nothing to cascade and ViewsDespawned is 0. Both routes end with the assets released.
             DestroyAll(entityManager, _sphereEntities);
             DestroyAll(entityManager, _capsuleEntities);
-            _world.GetExistingSystemManaged<ViewSystemGroup>().Update(); // recycle before releasing
+            _world.GetExistingSystemManaged<ViewSystemGroup>().Update(); // despawn system recycles them
 
-            _provisioner.ReleaseChunk(ChunkBeta);
-            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkBeta}') — '{KeySphere}' 1 -> 0 and '{KeyCapsule}' 1 -> 0, both torn down.");
+            var beta = _provisioner.ReleaseChunk(ChunkBeta);
+            Debug.Log($"[HybridViews] ReleaseChunk('{ChunkBeta}') — '{KeySphere}' 1 -> 0 and '{KeyCapsule}' 1 -> 0, " +
+                      $"both torn down. ViewsDespawned={beta.ViewsDespawned} because the entities were already gone.");
             LogRefCounts("after releasing beta (everything should be 0)");
         }
 

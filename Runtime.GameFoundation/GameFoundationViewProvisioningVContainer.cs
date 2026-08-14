@@ -22,7 +22,7 @@ namespace Cuvara.DOTS.GameFoundation
         /// <remarks>
         /// The <c>ChunkViewProvisioner</c> is deliberately <b>not</b> registered here.
         /// <c>RegisterDotsViews()</c> owns it, because it is the only call site that can hand the
-        /// provisioner the <c>EntityViewRegistry</c> as its <c>ILiveViewCounter</c> — and a
+        /// provisioner an <c>EntityViewCascade</c> as its <c>IViewCascadeSink</c> — and a
         /// provisioner without one releases chunk assets out from under live views. Registering it
         /// in both places would give whichever ran last, silently.
         /// </remarks>

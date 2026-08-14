@@ -33,17 +33,21 @@ namespace Cuvara.DOTS.Provisioning
     /// though the loads they kick off do overlap.</item>
     /// </list>
     /// <para>
-    /// <b>Releasing a chunk whose views are still alive is refused, not performed.</b> Reference
-    /// counting alone cannot make that case safe: the counts track chunks, and a live view is held
-    /// by an entity the provisioner has never heard of. Releasing anyway destroys pooled instances
-    /// that are on screen, while <c>EntityViewRegistry</c> keeps their handles and the entities keep
-    /// an <c>EntityViewLink</c> that will never resolve and never respawn — views silently gone, no
-    /// error, no way to recover. Of the available fixes, refusing is the one whose failure mode a
-    /// consumer can actually see: the call returns <see cref="ChunkReleaseResult.LiveViewCount"/>,
-    /// logs a warning naming a blocking key, publishes <see cref="ChunkReleased"/> with
-    /// <c>Released == false</c>, and changes nothing. Deferring the release instead would report
-    /// success for something that did not happen, and cascading into a despawn would put entity
-    /// lifetime decisions in the asset layer, which cannot see entities at all.
+    /// <b>Releasing a chunk whose views are still alive cascades: the views come down first.</b>
+    /// Reference counting alone cannot make that case safe, because the counts track chunks while a
+    /// live view is held by an entity the provisioner has never heard of. Releasing the asset first
+    /// destroyed pooled instances that were on screen while <c>EntityViewRegistry</c> kept their
+    /// handles and the entities kept an <c>EntityViewLink</c> that could never resolve or respawn.
+    /// The order is now inverted: every view standing on a key this release would drop is put
+    /// through the ordinary despawn path via <see cref="IViewCascadeSink"/> — recycled, handle
+    /// dropped, link cleared — and only then does the reference count reach zero and
+    /// <see cref="IViewAssetProvider.Release"/> run. The entities survive with no view, which is the
+    /// intended outcome of a streaming unload, and <see cref="ChunkCascadeReleased"/> is published so
+    /// that outcome is observable rather than silent.
+    /// </para>
+    /// <para>
+    /// Only keys this chunk is the <i>last</i> referencer of are cascaded. A key another chunk still
+    /// lists is not being released, so its views are in no danger and are left alone.
     /// </para>
     /// <para>
     /// <b>Accepted limitation:</b> the warm count for a key only grows. If chunk A asks for 8
@@ -58,9 +62,10 @@ namespace Cuvara.DOTS.Provisioning
     public sealed class ChunkViewProvisioner
     {
         private readonly IViewAssetProvider _provider;
-        private readonly ILiveViewCounter _liveViewCounter;
+        private readonly IViewCascadeSink _cascadeSink;
         private readonly IDotsPublisher<ChunkWarmed> _warmedPublisher;
         private readonly IDotsPublisher<ChunkReleased> _releasedPublisher;
+        private readonly IDotsPublisher<ChunkCascadeReleased> _cascadePublisher;
 
         /// <summary>chunk id -> the de-duplicated key set that chunk currently holds a reference on.</summary>
         private readonly Dictionary<string, HashSet<string>> _chunkKeys = new Dictionary<string, HashSet<string>>();
@@ -74,20 +79,22 @@ namespace Cuvara.DOTS.Provisioning
         /// <summary>chunk ids whose prewarm has completed, as opposed to merely started.</summary>
         private readonly HashSet<string> _loaded = new HashSet<string>();
 
-        /// <param name="liveViewCounter">
-        /// Supplies live-view counts so a release that would destroy on-screen views can be refused.
-        /// Optional, and <b>omitting it is unsafe for streaming</b>: without it the provisioner
-        /// cannot see live views and releases unconditionally, which is the dangling-link bug this
-        /// parameter exists to prevent. Pass the <c>EntityViewRegistry</c>.
+        /// <param name="cascadeSink">
+        /// Tears down the views standing on the keys a release drops, before the assets go. Optional,
+        /// and <b>omitting it is unsafe for streaming</b>: without it the provisioner cannot reach
+        /// the view layer and releases assets that live views may still be standing on, which is the
+        /// dangling-link bug this parameter exists to prevent. Pass an <c>EntityViewCascade</c>.
         /// </param>
         public ChunkViewProvisioner(
             IViewAssetProvider provider,
-            ILiveViewCounter liveViewCounter = null,
+            IViewCascadeSink cascadeSink = null,
             IDotsPublisher<ChunkWarmed> warmedPublisher = null,
-            IDotsPublisher<ChunkReleased> releasedPublisher = null)
+            IDotsPublisher<ChunkReleased> releasedPublisher = null,
+            IDotsPublisher<ChunkCascadeReleased> cascadePublisher = null)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-            _liveViewCounter = liveViewCounter;
+            _cascadeSink = cascadeSink;
+            _cascadePublisher = cascadePublisher ?? NullDotsPublisher<ChunkCascadeReleased>.Instance;
             _warmedPublisher = warmedPublisher ?? NullDotsPublisher<ChunkWarmed>.Instance;
             _releasedPublisher = releasedPublisher ?? NullDotsPublisher<ChunkReleased>.Instance;
         }
@@ -193,78 +200,59 @@ namespace Cuvara.DOTS.Provisioning
         /// provider; keys another chunk still lists are left alone.
         /// </summary>
         /// <remarks>
-        /// <b>Refused, with nothing changed, when a live view still stands on one of the keys this
-        /// call would release.</b> Despawn the entities first, then call again. An unknown chunk id
-        /// is a no-op, distinguishable from a refusal via
+        /// <b>Views standing on the keys this call would release are despawned first</b>, through
+        /// the ordinary despawn path, so nothing is left pointing at a released asset. Their
+        /// entities survive without views and <see cref="ChunkCascadeReleased"/> is published. An
+        /// unknown chunk id is a no-op, distinguishable via
         /// <see cref="ChunkReleaseResult.WasTracked"/>.
         /// </remarks>
         public ChunkReleaseResult ReleaseChunk(string chunkId)
         {
             if (chunkId == null || !_chunkKeys.TryGetValue(chunkId, out var set))
             {
-                return new ChunkReleaseResult(false, false, 0, null);
+                return new ChunkReleaseResult(false, false, 0, 0);
             }
 
-            var live = CountBlockingViews(set, out var blockingKey);
-            if (live > 0)
+            // Keys this chunk is the last referencer of — the only ones that will actually be
+            // released, and therefore the only ones whose views are in danger.
+            var expiring = new List<string>();
+            foreach (var key in set)
             {
-                Debug.LogWarning(
-                    $"[Cuvara.DOTS] Refused to release chunk '{chunkId}': {live} view(s) are still live on its " +
-                    $"keys (e.g. '{blockingKey}'). Releasing would destroy on-screen instances and leave their " +
-                    "EntityViewLinks dangling forever. Despawn those entities first, then release the chunk.");
-
-                var refused = new ChunkReleaseResult(false, true, live, blockingKey);
-                _releasedPublisher.Publish(new ChunkReleased(chunkId, false, live));
-                return refused;
+                if (GetReferenceCount(key) <= 1) expiring.Add(key);
             }
+
+            // Views down first, assets after. This ordering is the entire fix.
+            var despawned = expiring.Count > 0 && _cascadeSink != null
+                ? _cascadeSink.CascadeDespawn(expiring)
+                : 0;
 
             // Remove before decrementing so a re-entrant or repeated call cannot decrement twice.
             _chunkKeys.Remove(chunkId);
             _loaded.Remove(chunkId);
             foreach (var key in set) ReleaseKey(key);
 
-            _releasedPublisher.Publish(new ChunkReleased(chunkId, true, 0));
-            return new ChunkReleaseResult(true, true, 0, null);
+            if (despawned > 0)
+            {
+                Debug.Log(
+                    $"[Cuvara.DOTS] Chunk '{chunkId}' released {expiring.Count} key(s) and cascaded " +
+                    $"{despawned} view(s) away. Those entities are still alive and now have no view.");
+                _cascadePublisher.Publish(new ChunkCascadeReleased(chunkId, expiring.Count, despawned));
+            }
+
+            _releasedPublisher.Publish(new ChunkReleased(chunkId, true, despawned));
+            return new ChunkReleaseResult(true, true, despawned, expiring.Count);
         }
 
         /// <summary>
-        /// Releases every chunk. For scene teardown. Chunks with live views are refused like any
-        /// other, and the count of those refusals is returned.
+        /// Releases every chunk. For scene teardown.
         /// </summary>
+        /// <returns>Total views the cascades despawned.</returns>
         public int ReleaseAll()
         {
             var chunkIds = new List<string>(_chunkKeys.Keys);
-            var refused = 0;
-            foreach (var chunkId in chunkIds)
-            {
-                if (!ReleaseChunk(chunkId).Released) refused++;
-            }
-
-            return refused;
-        }
-
-        /// <summary>
-        /// Live views standing on keys this chunk is the last referencer of. Keys another chunk also
-        /// holds are not counted: releasing this chunk would not tear those down.
-        /// </summary>
-        private int CountBlockingViews(HashSet<string> set, out string blockingKey)
-        {
-            blockingKey = null;
-            if (_liveViewCounter == null) return 0;
-
-            var total = 0;
-            foreach (var key in set)
-            {
-                if (GetReferenceCount(key) > 1) continue;
-
-                var live = _liveViewCounter.CountLiveViews(key);
-                if (live <= 0) continue;
-
-                total += live;
-                blockingKey ??= key;
-            }
-
-            return total;
+            var despawned = 0;
+            foreach (var chunkId in chunkIds) despawned += ReleaseChunk(chunkId).ViewsDespawned;
+            return despawned;
         }
 
         private void ReleaseKey(string key)

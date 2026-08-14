@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-14
+
+### Changed
+
+- **Chunk release now cascades instead of refusing.** 0.5.0 refused a release while live views stood
+  on the keys it would drop; the approved behaviour is to take those views down first. `ReleaseChunk`
+  finds every entity whose `EntityViewLink` points at an instance of an expiring key, puts it through
+  the **ordinary despawn path** — recycle the instance, drop the handle, clear the link — and only
+  then lets the reference count reach zero and calls `IViewAssetProvider.Release`. That is the exact
+  inversion of the original bug, where the asset died first and the links were left dead with nobody
+  to clean them. Only keys the chunk is the *last* referencer of are cascaded: a key another chunk
+  still lists is not being released, so its views are in no danger.
+- `ChunkReleaseResult` now carries `ViewsDespawned` and `KeysReleased`; the refusal fields are gone.
+  `ReleaseAll` returns total views cascaded. `ChunkReleased.LiveViewCount` became `ViewsDespawned`.
+- `ILiveViewCounter` is replaced by `IViewCascadeSink` — the provisioner no longer needs to *count*
+  live views, it needs to *end* them, and one seam is better than two overlapping ones.
+
+### Added
+
+- `ChunkCascadeReleased(ChunkId, KeyCount, ViewsDespawned)` — published whenever a release tears down
+  views. Surviving without a view is the intended outcome of a streaming unload, but a consumer
+  cannot infer it from anything else, so shipping it silently would make an entity that quietly
+  stopped rendering indistinguishable from a bug. A log line is not enough: the code unloading a
+  region is usually not the code owning the entities in it.
+- `EntityViewCascade` — the `IViewCascadeSink` implementation, and the only type that knows both the
+  registry and the world.
+- `EntityViewRegistry.TryGetKey`, so the cascade can map a handle back to the key it came from.
+- `EntityViewCascadeTests` (play mode, real `World`) and reworked `ChunkReleaseSafetyTests`.
+
+### Accepted limitations
+
+- **The cascade is synchronous in its managed half and deferred in its structural half.** Recycling
+  the instance and dropping the handle happen inside the `ReleaseChunk` call; removing
+  `EntityViewLink`/`EntityViewLinkCleanup` is recorded into `DotsEndSimulationCommandBufferSystem`,
+  because an `EntityManager` structural change from arbitrary consumer code would invalidate any
+  chunk iteration in flight. **The state a caller observes mid-cascade**, until that buffer plays back
+  at the end of the next `GameplaySystemGroup`: GameObjects already gone and assets already released,
+  while the entities still carry an `EntityViewLink` whose handle no longer resolves. Nothing
+  misbehaves in that window — `ApplyTransform` ignores an unknown handle and `Despawn` on a dropped
+  one is a no-op — but query for a live view via `EntityViewRegistry.Get`, not by the presence of the
+  component. Pinned by a test.
+- **No respawn loop**: the cascade removes the link and does not re-add an `EntityViewRequest`, and
+  the spawn system acts only on requests, so a cascaded entity stays view-less until something
+  deliberately requests a view again. Pinned by a test.
+- A provisioner built without an `IViewCascadeSink` still releases unconditionally; the constructor
+  documents it as unsafe for streaming and a test pins it, so it is a decision rather than an accident.
+- **Nothing has been compiled.** The MessagePipe adapters remain entirely unexercised.
+
 ## [0.5.0] - 2026-08-14
 
 ### Fixed

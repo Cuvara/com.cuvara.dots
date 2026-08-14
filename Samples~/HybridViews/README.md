@@ -78,13 +78,13 @@ standalone claim, not a missing dependency.
   prefabs, which is exactly what `IViewAssetProvider`'s docs tell you not to build in a real
   project — adapt the pool you already have instead. It exists here to prove the package needs
   nothing else.
-- **Releasing a chunk needs its views recycled first — but the package now enforces that.** As of
-  0.5.0 `ReleaseChunk` refuses, logs, and changes nothing while live views stand on a key it would
-  tear down, returning `LiveViewCount` and a `BlockingKey`. Destroying the entities is not enough by
-  itself: the views come back only when the despawn system runs, so the sample destroys, ticks
-  `ViewSystemGroup`, then releases. Step 5 deliberately asks for the release too early first, to show
-  the refusal. Pass the `EntityViewRegistry` as the provisioner's `ILiveViewCounter` or none of this
-  protection exists.
+- **Releasing a chunk cascades into its views.** Step 5 releases `chunk.alpha` with its cube
+  entities still alive: their views are recycled through the ordinary despawn path, their
+  `EntityViewLink`s are cleared, the assets are released, and the entities survive with no view —
+  a `ChunkCascadeReleased` message reports how many went. Step 6 does it the other way round,
+  destroying the entities first, so nothing is left to cascade. Both end with the assets released.
+  The cascade only reaches keys the chunk is the last referencer of; pass an `EntityViewCascade` as
+  the provisioner's `IViewCascadeSink` or none of this protection exists.
 - **All timings are synchronous here.** The provider's `PrewarmAsync` completes in the same frame,
   so the "wait for the warm task" branch in `Update` never actually waits. With a real loader it
   would, and entities would sit view-less for longer than a couple of frames.

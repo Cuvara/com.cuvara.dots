@@ -1,26 +1,25 @@
 namespace Cuvara.DOTS.Messaging
 {
     /// <summary>
-    /// A chunk release was attempted. <see cref="Released"/> is false when it was refused because
-    /// views were still live against the chunk's keys.
+    /// A chunk release completed. <see cref="Released"/> is false only for an unknown chunk id.
     /// </summary>
     /// <remarks>
-    /// The refusal is published rather than only returned, because the caller that unloads a chunk
-    /// is often not the one that owns the entities holding it open.
+    /// The coarse "a chunk went away" signal. <see cref="ChunkCascadeReleased"/> is the one that
+    /// matters when views were torn down with it; this fires either way.
     /// </remarks>
     public readonly struct ChunkReleased
     {
         public readonly string ChunkId;
         public readonly bool Released;
 
-        /// <summary>Live views still linked against the chunk's keys; 0 on a successful release.</summary>
-        public readonly int LiveViewCount;
+        /// <summary>Views the release cascaded away; 0 when nothing was standing on its keys.</summary>
+        public readonly int ViewsDespawned;
 
-        public ChunkReleased(string chunkId, bool released, int liveViewCount)
+        public ChunkReleased(string chunkId, bool released, int viewsDespawned)
         {
             ChunkId = chunkId;
             Released = released;
-            LiveViewCount = liveViewCount;
+            ViewsDespawned = viewsDespawned;
         }
     }
 }

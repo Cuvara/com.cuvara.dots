@@ -23,12 +23,12 @@ namespace Cuvara.DOTS.Views
     /// defended against; a session would have to spawn two billion views to reach it.
     /// </para>
     /// <para>
-    /// It also implements <see cref="ILiveViewCounter"/>. That is what lets
-    /// <see cref="ChunkViewProvisioner"/> refuse to tear down assets a live view still stands on —
-    /// see <c>ChunkViewProvisioner.ReleaseChunk</c>.
+    /// It records which key each handle came from, which is what lets
+    /// <see cref="EntityViewCascade"/> find the views standing on an unloading chunk's keys and take
+    /// them down before the assets go.
     /// </para>
     /// </remarks>
-    public sealed class EntityViewRegistry : ILiveViewCounter
+    public sealed class EntityViewRegistry
     {
         private readonly IViewAssetProvider _provider;
         private readonly Dictionary<int, GameObject> _views = new Dictionary<int, GameObject>();
@@ -106,9 +106,14 @@ namespace Cuvara.DOTS.Views
             return true;
         }
 
-        /// <inheritdoc />
+        /// <summary>Live view instances currently spawned from <paramref name="key"/>.</summary>
         public int CountLiveViews(string key) =>
             key != null && _liveByKey.TryGetValue(key, out var count) ? count : 0;
+
+        /// <summary>
+        /// The key a handle was spawned from. False for an unknown or already-despawned handle.
+        /// </summary>
+        public bool TryGetKey(int viewId, out string key) => _keys.TryGetValue(viewId, out key);
 
         /// <summary>
         /// Spawns a view for the key and returns its handle, or 0 if the provider gave nothing back.
