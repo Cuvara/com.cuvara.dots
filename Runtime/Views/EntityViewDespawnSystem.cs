@@ -13,9 +13,10 @@ namespace Cuvara.DOTS.Views
     /// Removing the cleanup component is what actually frees the entity id; skip that and the
     /// world fills up with zombies.
     /// </remarks>
+    // First in ViewLifecycleGroup: recycling a dead entity's view before this frame's spawns lets
+    // the pool hand the freed instance straight back instead of instantiating another.
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ViewSystemGroup))]
-    [UpdateAfter(typeof(EntityViewSpawnSystem))]
+    [UpdateInGroup(typeof(ViewLifecycleGroup))]
     internal partial struct EntityViewDespawnSystem : ISystem
     {
         private EntityQuery _destroyed;

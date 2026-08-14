@@ -52,6 +52,8 @@ namespace Cuvara.DOTS.Tests.Editor
             typeof(MovementSystemGroup),
             typeof(LifecycleSystemGroup),
             typeof(ViewSystemGroup),
+            typeof(ViewLifecycleGroup),
+            typeof(ViewTransformSyncGroup),
             typeof(DotsEndSimulationCommandBufferSystem),
         };
 
@@ -101,15 +103,29 @@ namespace Cuvara.DOTS.Tests.Editor
         }
 
         [Test]
-        public void ViewSystems_AreInTheViewGroup_SpawnDespawnSync()
+        public void ViewSubGroups_NestUnderTheViewGroup_LifecycleThenSync()
         {
-            foreach (var system in PackageSystems)
-            {
-                Assert.AreEqual(typeof(ViewSystemGroup), GroupOf(system), system.Name);
-            }
+            // Nested rather than flat so a consumer can inject between "views exist" and "views are
+            // positioned" without naming a package system.
+            Assert.AreEqual(typeof(ViewSystemGroup), GroupOf(typeof(ViewLifecycleGroup)));
+            Assert.AreEqual(typeof(ViewSystemGroup), GroupOf(typeof(ViewTransformSyncGroup)));
+            CollectionAssert.Contains(UpdateAfterOf(typeof(ViewTransformSyncGroup)), typeof(ViewLifecycleGroup));
+        }
 
-            CollectionAssert.Contains(UpdateAfterOf(typeof(EntityViewDespawnSystem)), typeof(EntityViewSpawnSystem));
-            CollectionAssert.Contains(UpdateAfterOf(typeof(EntityViewTransformSyncSystem)), typeof(EntityViewDespawnSystem));
+        [Test]
+        public void LifecycleSystems_AreInTheLifecycleGroup_DespawnBeforeSpawn()
+        {
+            Assert.AreEqual(typeof(ViewLifecycleGroup), GroupOf(typeof(EntityViewDespawnSystem)));
+            Assert.AreEqual(typeof(ViewLifecycleGroup), GroupOf(typeof(EntityViewSpawnSystem)));
+
+            // Despawn first, so a freed pool instance is reusable by this same frame's spawns.
+            CollectionAssert.Contains(UpdateAfterOf(typeof(EntityViewSpawnSystem)), typeof(EntityViewDespawnSystem));
+        }
+
+        [Test]
+        public void SyncSystem_IsInTheSyncGroup()
+        {
+            Assert.AreEqual(typeof(ViewTransformSyncGroup), GroupOf(typeof(EntityViewTransformSyncSystem)));
         }
 
         [Test]

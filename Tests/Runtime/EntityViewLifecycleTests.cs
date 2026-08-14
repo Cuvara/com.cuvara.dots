@@ -46,14 +46,14 @@ namespace Cuvara.DOTS.Tests
         }
 
         /// <summary>
-        /// Drives the three systems in the order the group layout puts them: spawn, despawn, sync.
+        /// Drives the three systems in the order the group layout puts them: despawn, spawn, sync.
         /// Kept honest by the edit-mode attribute assertions in <c>ViewSystemGroupLayoutTests</c> —
         /// this harness bypasses the groups, so it cannot detect a wrong attribute on its own.
         /// </summary>
         private void Tick()
         {
-            _world.GetExistingSystem<EntityViewSpawnSystem>().Update(_world.Unmanaged);
             _world.GetExistingSystem<EntityViewDespawnSystem>().Update(_world.Unmanaged);
+            _world.GetExistingSystem<EntityViewSpawnSystem>().Update(_world.Unmanaged);
             _world.GetExistingSystem<EntityViewTransformSyncSystem>().Update(_world.Unmanaged);
         }
 

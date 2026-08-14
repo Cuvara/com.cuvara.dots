@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-14
+
+### Changed
+
+- **The view group is nested rather than flat**, so a consumer can inject work between "views exist"
+  and "views are positioned" without naming a package system:
+  `ViewSystemGroup` → `ViewLifecycleGroup` (despawn, then spawn) and `ViewTransformSyncGroup`
+  (`UpdateAfter(ViewLifecycleGroup)`).
+- **Despawn runs before spawn again.** Recycling a dead entity's view first makes the freed pool
+  instance available to the same frame's spawns, so a frame that destroys ten entities and creates
+  ten more instantiates nothing; the reverse order grows the pool to the sum instead of the maximum.
+- The sample ticks `ViewLifecycleGroup` rather than the whole `ViewSystemGroup` when it needs a
+  despawn flushed early — the narrower group is exactly what it needs, and ticking the parent would
+  run the transform sync twice in one frame.
+
 ## [0.6.0] - 2026-08-14
 
 ### Changed

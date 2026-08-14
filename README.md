@@ -42,9 +42,11 @@ SimulationSystemGroup                         [Unity]
 └── TransformSystemGroup                      [Unity]
 PresentationSystemGroup                       [Unity]
 └── ViewSystemGroup
-    ├── EntityViewSpawnSystem
-    ├── EntityViewDespawnSystem               UpdateAfter(EntityViewSpawnSystem)
-    └── EntityViewTransformSyncSystem         UpdateAfter(EntityViewDespawnSystem)
+    ├── ViewLifecycleGroup                    structural: views appear/disappear
+    │   ├── EntityViewDespawnSystem           first — freed instances reusable this frame
+    │   └── EntityViewSpawnSystem             UpdateAfter(EntityViewDespawnSystem)
+    └── ViewTransformSyncGroup                UpdateAfter(ViewLifecycleGroup)
+        └── EntityViewTransformSyncSystem
 ```
 
 Order your own systems against the groups: `[UpdateAfter(typeof(ViewSystemGroup))]`.

@@ -23,12 +23,12 @@ namespace Cuvara.DOTS.Views
     /// finished warming stays invisible for a few frames.
     /// </para>
     /// </remarks>
-    // First in ViewSystemGroup. Expressed as an UpdateAfter on the following systems rather than
-    // as OrderFirst here: Entities batches OrderFirst members separately and then drops ordering
-    // relations between that batch and normal members, so the relation that actually holds is the
-    // explicit one.
+    // After despawn — see EntityViewDespawnSystem for why that order. Expressed as an explicit
+    // UpdateAfter rather than OrderFirst/OrderLast: Entities batches those separately and then drops
+    // ordering relations between the batch and normal members, so this is the relation that holds.
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ViewSystemGroup))]
+    [UpdateInGroup(typeof(ViewLifecycleGroup))]
+    [UpdateAfter(typeof(EntityViewDespawnSystem))]
     internal partial struct EntityViewSpawnSystem : ISystem
     {
         private EntityQuery _pending;

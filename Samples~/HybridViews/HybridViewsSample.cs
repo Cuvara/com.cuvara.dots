@@ -230,7 +230,11 @@ namespace Cuvara.DOTS.Samples.HybridViews
             // nothing to cascade and ViewsDespawned is 0. Both routes end with the assets released.
             DestroyAll(entityManager, _sphereEntities);
             DestroyAll(entityManager, _capsuleEntities);
-            _world.GetExistingSystemManaged<ViewSystemGroup>().Update(); // despawn system recycles them
+            // ViewLifecycleGroup, not ViewSystemGroup: only the despawn half is needed here, and
+            // ticking the whole view group would also run the transform sync a second time this
+            // frame. This is a MonoBehaviour.Update, which is a different player-loop phase from the
+            // ECS groups, so driving a group by hand here is not re-entrant — it just runs early.
+            _world.GetExistingSystemManaged<ViewLifecycleGroup>().Update();
 
             var beta = _provisioner.ReleaseChunk(ChunkBeta);
             Debug.Log($"[HybridViews] ReleaseChunk('{ChunkBeta}') — '{KeySphere}' 1 -> 0 and '{KeyCapsule}' 1 -> 0, " +
