@@ -4,7 +4,7 @@ using Unity.Entities;
 
 namespace Cuvara.DOTS.Simulation
 {
-    /// <summary>Counts down <see cref="Lifetime"/> and destroys entities whose time is up.</summary>
+    /// <summary>Counts down <see cref="TimeToLive"/> and destroys entities whose time is up.</summary>
     /// <remarks>
     /// <para>
     /// After <see cref="HealthDeathSystem"/>, so an entity that dies of damage and expires on the
@@ -20,7 +20,7 @@ namespace Cuvara.DOTS.Simulation
     /// </para>
     /// <para>
     /// The countdown is written even on the frame the entity dies. That is deliberate: a consumer
-    /// reading <see cref="Lifetime.Remaining"/> during playback sees a value that has actually
+    /// reading <see cref="TimeToLive.Remaining"/> during playback sees a value that has actually
     /// reached zero, rather than the last positive one.
     /// </para>
     /// </remarks>
@@ -28,12 +28,12 @@ namespace Cuvara.DOTS.Simulation
     [DisableAutoCreation]
     [UpdateInGroup(typeof(LifecycleSystemGroup))]
     [UpdateAfter(typeof(HealthDeathSystem))]
-    internal partial struct LifetimeSystem : ISystem
+    internal partial struct TimeToLiveSystem : ISystem
     {
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<Lifetime>();
+            state.RequireForUpdate<TimeToLive>();
             state.RequireForUpdate<DotsEndSimulationCommandBufferSystem.Singleton>();
         }
 
@@ -45,10 +45,10 @@ namespace Cuvara.DOTS.Simulation
                 .GetSingleton<DotsEndSimulationCommandBufferSystem.Singleton>()
                 .CreateCommandBuffer(state.WorldUnmanaged);
 
-            foreach (var (lifetime, entity) in SystemAPI.Query<RefRW<Lifetime>>().WithEntityAccess())
+            foreach (var (timeToLive, entity) in SystemAPI.Query<RefRW<TimeToLive>>().WithEntityAccess())
             {
-                lifetime.ValueRW.Remaining -= deltaTime;
-                if (lifetime.ValueRO.Remaining <= 0f) commandBuffer.DestroyEntity(entity);
+                timeToLive.ValueRW.Remaining -= deltaTime;
+                if (timeToLive.ValueRO.Remaining <= 0f) commandBuffer.DestroyEntity(entity);
             }
         }
     }

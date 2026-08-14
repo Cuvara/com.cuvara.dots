@@ -125,10 +125,10 @@ namespace Cuvara.DOTS.Tests
         }
 
         [Test]
-        public void Lifetime_DestroysWhenExpired_ThroughThePackagesOwnCommandBuffer()
+        public void TimeToLive_DestroysWhenExpired_ThroughThePackagesOwnCommandBuffer()
         {
             var entity = CreateAt(float3.zero);
-            _entityManager.AddComponentData(entity, new Lifetime { Remaining = 0.4f });
+            _entityManager.AddComponentData(entity, new TimeToLive { Remaining = 0.4f });
 
             Tick(); // 0.4 -> 0.15, still alive
             Assert.That(_entityManager.Exists(entity), Is.True);

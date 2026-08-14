@@ -51,7 +51,7 @@ namespace Cuvara.DOTS.Simulation
             movement.AddSystemToUpdateList(world.GetOrCreateSystem<SpinSystem>());
 
             lifecycle.AddSystemToUpdateList(world.GetOrCreateSystem<HealthDeathSystem>());
-            lifecycle.AddSystemToUpdateList(world.GetOrCreateSystem<LifetimeSystem>());
+            lifecycle.AddSystemToUpdateList(world.GetOrCreateSystem<TimeToLiveSystem>());
 
             // Adding a system manually does not sort the group: without this the UpdateAfter chains
             // above are declared and not applied, and the systems run in insertion order by luck.
