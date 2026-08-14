@@ -31,11 +31,12 @@ namespace Cuvara.DOTS.Netcode
     /// <c>[BurstCompile]</c> would be a claim the code cannot honour.
     /// </para>
     /// </remarks>
-    // In NetcodeSystemGroup — InitializationSystemGroup — so entities and transforms written here
-    // are seen by this frame's TransformSystemGroup and this frame's ViewSystemGroup. See
-    // DotsEntityView for why that makes the queue free rather than a frame late.
+    // In SnapshotApplyGroup, inside NetcodeSystemGroup, inside InitializationSystemGroup — so
+    // entities and transforms written here are seen by this frame's TransformSystemGroup and this
+    // frame's ViewSystemGroup. See DotsEntityView for why that makes the queue free rather than a
+    // frame late. The sub-group exists so prediction can order itself after this without naming it.
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(NetcodeSystemGroup))]
+    [UpdateInGroup(typeof(SnapshotApplyGroup))]
     internal partial struct NetworkViewCommandSystem : ISystem
     {
         private NativeHashMap<FixedString64Bytes, Entity> _entities;

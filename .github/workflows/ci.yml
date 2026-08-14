@@ -155,7 +155,8 @@ jobs:
             'Cuvara.DOTS.Tests.Editor>=30' \
             'Cuvara.DOTS.Tests.Runtime>=23' \
             'Cuvara.DOTS.Tests.GameLogic>=41' \
-            'Cuvara.DOTS.Tests.Netcode==0'
+            'Cuvara.DOTS.Tests.Netcode==0' \
+            'Cuvara.DOTS.Tests.Prediction==0'
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -281,7 +282,8 @@ jobs:
             'Cuvara.DOTS.Tests.Editor>=30' \
             'Cuvara.DOTS.Tests.Runtime>=23' \
             'Cuvara.DOTS.Tests.GameLogic>=41' \
-            'Cuvara.DOTS.Tests.Netcode>=47'
+            'Cuvara.DOTS.Tests.Netcode>=47' \
+            'Cuvara.DOTS.Tests.Prediction>=12'
 
       - uses: actions/upload-artifact@v4
         if: always()
