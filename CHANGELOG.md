@@ -5,6 +5,84 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-08-14
+
+### Added
+
+- **`Cuvara.DOTS.Netcode.Prediction`** — the DOTS half of client-side prediction. Reads the local
+  entity's `ReconciliationAnchor`, drives netcode's `LocalMovePredictor`, owns `PredictedTransform`,
+  and writes `LocalTransform`.
+  - `DotsPredictionBootstrap.Install(world, predictor, worldState)`.
+  - `LocalPredictionReference` — managed singleton carrying the predictor and the `WorldState` that
+    supplies `AckTick`.
+  - `LocalPredictionSystem` (internal) in the new `PredictionSystemGroup`.
+- **`SnapshotApplyGroup` and `PredictionSystemGroup`** in the core assembly, both inside
+  `NetcodeSystemGroup`, prediction ordered after snapshot apply.
+
+### The seam, and why the split falls where it does
+
+netcode owns the algorithm — input buffer, replay through `TryMove`, smoothing. This package owns
+everything ECS-shaped: reading the anchor, supplying the tick, claiming and releasing the marker,
+writing the transform. A DOTS system in netcode would mean netcode depending on Entities, and the
+arrow between these packages is one-way.
+
+**A third assembly, gated on both `CUVARA_NETCODE` and `CUVARA_SHARED_GAMELOGIC`**, rather than code
+added to `Cuvara.DOTS.Netcode`. The driver names `Vec2`, so it needs `Shared.GameLogic`; widening the
+adapter's gate to require it would change what both CI rows mean and break one of the two
+standalone-install properties CI now guards. The cost is one more assembly; the alternative was
+coupling two independent optional dependencies into one.
+
+### Two ordering groups instead of one `[UpdateAfter]`
+
+Prediction must run **after** snapshot application: the anchor it reconciles against is written
+there, and reconciling first uses the previous frame's authoritative position — a one-frame-stale
+correction that reads as mistuned prediction rather than as an ordering bug, and gets chased in the
+wrong package.
+
+Expressing that with `[UpdateAfter(typeof(NetworkViewCommandSystem))]` would have needed an
+`InternalsVisibleTo` grant and turned an internal system name into a cross-assembly ordering promise —
+exactly what keeping systems internal is meant to prevent. Two public groups say the same thing
+without naming a system, which is the package's stated contract everywhere else.
+
+Both groups are created empty by `DotsViewBootstrap`, so a consumer's `[UpdateAfter]` resolves in a
+project with neither optional package installed and does not change meaning when they arrive.
+
+### The marker has two failure modes, not one
+
+`PredictedTransform` says "something else owns `LocalTransform`". 0.10.0 guarded the case where it is
+absent and the adapter keeps writing. This release guards the other side: **the marker present with
+nothing writing** leaves the transform with *no* writer at all and freezes the avatar. It is reachable
+three ways, and each has a test:
+
+- a predictor with unusable settings (`IsEnabled == false`) — the driver releases rather than claims;
+- a predictor that becomes disabled mid-session — the driver releases a marker it had claimed;
+- `DotsPredictionBootstrap.Uninstall` — removes the marker from every entity before dropping the
+  reference.
+
+All three surface in a build rather than in CI, because a disabled predictor is a runtime
+configuration. `DisabledPredictor_LeavesTheAdapterDrivingTheTransform` asserts the positive half too:
+not claiming is only correct if the adapter is still writing, and asserting the marker's absence alone
+would pass on a frozen avatar.
+
+### Deviation worth flagging
+
+`SimConversions` was the instructed conversion site, and it is `internal` to `Cuvara.DOTS.GameLogic` —
+a differently gated assembly. Reaching it meant widening that assembly's public API or an
+`InternalsVisibleTo` grant coupling two independent gates, for one line. The driver keeps a single
+private conversion site instead, which is what "convert at the boundary, not once per call" asks for.
+
+### Tests
+
+12 in `Tests/Editor.Prediction/`, driven through the public groups. Adapter floor stays 47; the new
+assembly's floor is 12, and `==0` in the netcode-absent configuration.
+
+### Unverified
+
+The driving system has **never run against a live server**. Its tests assert wiring — which
+coordinates reach the predictor, when the marker is claimed and released, that the mapping is shared
+with the adapter — not that prediction feels better. Keypress-to-visible is a measurement, and it has
+not been taken.
+
 ## [0.12.0] - 2026-08-14
 
 ### Added
