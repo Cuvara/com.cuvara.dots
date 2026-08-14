@@ -21,10 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the MessagePipe and GameFoundation adapters are compile-checked only.
 - Version bumped to 0.6.3 so the tag carrying these docs matches the manifest. Documentation only —
   no runtime, test or asmdef change.
-
-
-### Documentation
-
 - **Consumers must list this package in `testables` or its tests do not exist for them.** Written up
   in the README install section. A git-URL install lives in `Library/PackageCache` and Unity builds a
   package's test assemblies only when the project's `Packages/manifest.json` names it in `testables`;
@@ -36,9 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Cuvara.DOTS.Tests.Editor.dll`, not the manifest edit.
 - README install snippets updated from `#v0.1.0` to `#v0.6.2`; the old ones pinned a tag from before
   any runtime code existed.
-- *Known debts* in `ROADMAP.md` upgraded from suspicion to fact: measured in the consuming project,
-  a full EditMode run passes 139/139 while `Cuvara.DOTS` contributes **zero** — those tests belong to
-  other packages. Also records that `Cuvara.DOTS.Tests.GameLogic` carries a second, deliberate gate
+- *Known debts* in `ROADMAP.md` upgraded from suspicion to fact. The measurement it recorded — a full
+  EditMode run passing 139/139 while `Cuvara.DOTS` contributed **zero** — was accurate before the
+  Editor restart made `testables` take effect, and is superseded by the 205/205 above; it is kept
+  here as the before-half of that pair. It also records that `Cuvara.DOTS.Tests.GameLogic` carries a second, deliberate gate
   (`CUVARA_SHARED_GAMELOGIC` plus a `Shared.GameLogic` assembly reference), so it can legitimately
   contribute no cases when the optional dependency is absent, and that no test references
   `Cuvara.DOTS.DI` or `Cuvara.DOTS.GameFoundation`.
