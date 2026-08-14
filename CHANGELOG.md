@@ -5,6 +5,73 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-14
+
+### Added
+
+- **CI, for the first time.** This repository had no `.github/` at all. That was *honest* — a
+  repository with no checks cannot mislead anyone — but it meant every verification the package ever
+  had came from one person's Editor, and the numbers quoted in earlier releases were the consuming
+  project's, not this package's.
+
+  The gate deliberately does **not** assert "the test runner exited zero". A green run over **zero
+  tests** is worse than no gate: it converts the absence of verification into a positive signal and
+  spends the reviewer's budget for them. That is not hypothetical — `com.cuvara.netcode`'s gate
+  reported `No tests were executed. 0/0 Passed` under a green check while a breaking interface change
+  went through it.
+
+  **This package is unusually exposed to that failure, by its own design.** Two of its four test
+  assemblies are compiled out when their optional dependency is missing:
+
+  | Assembly | Vanishes without |
+  |---|---|
+  | `Cuvara.DOTS.Tests.Netcode` | `com.cuvara.netcode` >= 0.4.0 |
+  | `Cuvara.DOTS.Tests.GameLogic` | `com.rpgmmo.shared-gamelogic` |
+
+  Nothing fails when they vanish. "Absent beats broken" is the right rule for a *consumer* and a
+  dangerous one for a *gate*, and the workflow is where those two jobs are told apart.
+
+- **`.github/scripts/assert_test_floors.py`** — per-assembly test-count floors parsed from the NUnit
+  XML, never an exit code. `Assembly>=N` fails if the assembly ran nothing, which is what catches an
+  assembly compiled out of existence; `Assembly==0` is satisfied by an absent assembly, which is what
+  "correctly compiled out" looks like. Counts come from the `test-case` elements rather than the
+  suite's own `total`/`passed` attributes, because those vary across Unity and NUnit versions and a
+  missing attribute reads as zero — indistinguishable from the failure being checked for. A
+  non-passing case fails the run independently of any floor.
+- **`.github/scripts/check_metas.py`** — every Unity-visible tracked file and folder must have a
+  committed `.meta`. Same failure family: a missing `.meta` disabled parts of this package for seven
+  releases without failing anything.
+
+### Two configurations, and one of them is not yet provable
+
+| Job | Asserts |
+|---|---|
+| `Unity Tests (netcode absent)` | `Cuvara.DOTS.Netcode.dll` **absent**; Editor >= 30, Runtime >= 23, GameLogic >= 8, **Netcode == 0** |
+| `Unity Tests (netcode 0.4.0)` | `Cuvara.DOTS.Netcode.dll` **present**; the same three, plus **Netcode >= 44** |
+
+The first automates the standalone-install check that had been carried by hand — the one a human
+stops re-running once it has passed twice. **The second cannot pass until `com.cuvara.netcode`
+v0.4.0 is tagged**, and is left red rather than trimmed to make the run green. A gate shaped to pass
+is the thing this whole file argues against.
+
+Floors are lower bounds, not headcounts: they stop an assembly vanishing, and do not need editing
+every time a test is added.
+
+### Also
+
+- The `pull_request` trigger fires on **every** base branch, not only `main`. netcode's fires only on
+  PRs into `main`, so a stacked PR — how this repo has actually been shipping, #5 based on #4 — is
+  ungated there.
+
+### Unverified
+
+The scripts are exercised locally in both directions (a missing `.meta` caught; floors passing,
+failing on a compiled-out assembly, on an empty artifacts directory, on a missing directory, and on a
+passing floor with a failing test). **The workflow itself is proven by running it**: the first commit
+on this branch carries a deliberately failing test so the first run is red, and removing it is what
+makes the second run green. Until both runs exist in the PR's check history, the gate is unproven —
+by its own argument.
+
 ## [0.10.0] - 2026-08-14
 
 Prepares for prediction by giving the local player's transform a single writer, **before** a predictor

@@ -1,0 +1,250 @@
+name: CI
+
+# This package had no CI at all until 0.10.0. That was honest — a repository with
+# no checks cannot mislead anyone — but it meant every verification it ever had
+# came from one person's Editor.
+#
+# The gate it grew is deliberately not "did the test runner exit zero". A green
+# run over ZERO tests is worse than no gate: it turns the absence of verification
+# into a positive signal and spends the reviewer's budget for them. That is not
+# hypothetical here — com.cuvara.netcode's gate reported "No tests were executed.
+# 0/0 Passed" under a green check while a breaking interface change went through
+# it. So every Unity job below asserts a per-assembly test-count floor, and the
+# floors are what make the check mean something. See .github/scripts/assert_test_floors.py.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    # Every base, not just main. netcode's gate fires only on PRs into main, so a
+    # stacked PR — which is how this repo has been shipping, #5 based on #4 — is
+    # ungated there. A gate with a hole shaped like the workflow we actually use
+    # is barely a gate.
+    branches: ['**']
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate package.json
+        run: |
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('./package.json','utf8'));
+            const required = ['name', 'version', 'displayName', 'description', 'unity'];
+            const missing = required.filter(k => !pkg[k]);
+            if (missing.length) {
+              console.error('Missing fields:', missing.join(', '));
+              process.exit(1);
+            }
+            console.log(pkg.name + '@' + pkg.version + ' — valid');
+          "
+
+      - name: Validate CHANGELOG has current version
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('./package.json','utf8')).version")
+          grep -q "\[$VERSION\]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md missing entry for v$VERSION"
+            exit 1
+          }
+
+      # A missing .meta disabled parts of this package for seven releases without
+      # failing anything. Same failure family as a green run over zero tests:
+      # both look exactly like success.
+      - name: Every Unity-visible file has a .meta
+        run: python3 .github/scripts/check_metas.py
+
+      - name: List assembly definitions
+        run: |
+          find . -name "*.asmdef" -not -path "./.github/*" | sort | while read f; do
+            node -e "
+              const a = JSON.parse(require('fs').readFileSync('$f','utf8'));
+              const dc = (a.defineConstraints || []).join(', ') || '(none)';
+              console.log('  $f → ' + a.name + '   constraints: ' + dc);
+            "
+          done
+
+  # ---------------------------------------------------------------------------
+  # Configuration 1: netcode absent.
+  #
+  # This is the standalone-install property the package promises, and until now
+  # it was verified once, by hand, by physically removing the package. The
+  # adapter assembly must be compiled out — and the floor `==0` is what proves
+  # it was compiled out rather than merely silent.
+  # ---------------------------------------------------------------------------
+  test-without-netcode:
+    name: Unity Tests (netcode absent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: package
+
+      - name: Bootstrap test project
+        run: |
+          mkdir -p Assets ProjectSettings Packages
+
+          cat > Packages/manifest.json << 'JSON'
+          {
+            "dependencies": {
+              "com.cuvara.dots": "file:../package",
+              "com.unity.entities": "1.4.8",
+              "com.unity.burst": "1.8.30",
+              "com.unity.collections": "2.6.8",
+              "com.unity.mathematics": "1.3.2",
+              "com.rpgmmo.shared-gamelogic": "https://github.com/Cuvara/rpg-mmo-server.git?path=/backend/gameserver-dotnet/Shared.GameLogic#sgl-v0.1.6"
+            },
+            "testables": ["com.cuvara.dots"]
+          }
+          JSON
+
+          cat > ProjectSettings/ProjectSettings.asset << 'YAML'
+          %YAML 1.1
+          %TAG !u! tag:unity3d.com,2011:
+          --- !u!129 &1
+          PlayerSettings:
+            companyName: Cuvara
+            productName: DotsTest
+          YAML
+
+      - name: Run tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.3.9f1
+          testMode: all
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Test Results (netcode absent)
+          artifactsPath: artifacts
+
+      # The adapter must be gone, not broken. If this file exists, the
+      # versionDefines gate is not doing its job and the package would ship a
+      # CS0535 into any project on an older netcode.
+      - name: Adapter assembly must be absent
+        if: always()
+        run: |
+          if [ -f Library/ScriptAssemblies/Cuvara.DOTS.Netcode.dll ]; then
+            echo "::error::Cuvara.DOTS.Netcode.dll was built with no com.cuvara.netcode installed — the CUVARA_NETCODE gate is not working"
+            exit 1
+          fi
+          echo "Cuvara.DOTS.Netcode.dll correctly absent."
+
+      - name: Assert test floors
+        if: always()
+        run: |
+          python3 package/.github/scripts/assert_test_floors.py artifacts \
+            'Cuvara.DOTS.Tests.Editor>=30' \
+            'Cuvara.DOTS.Tests.Runtime>=23' \
+            'Cuvara.DOTS.Tests.GameLogic>=8' \
+            'Cuvara.DOTS.Tests.Netcode==0'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-without-netcode
+          path: artifacts/
+
+  # ---------------------------------------------------------------------------
+  # Configuration 2: netcode installed.
+  #
+  # UNPROVEN AT THE TIME OF WRITING: com.cuvara.netcode v0.4.0 is not tagged yet,
+  # so this job cannot resolve its dependency and is expected to be red until it
+  # is. The row is written now rather than trimmed to make the run green — a gate
+  # shaped to pass is the thing this whole file exists to argue against.
+  # ---------------------------------------------------------------------------
+  test-with-netcode:
+    name: Unity Tests (netcode 0.4.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: package
+
+      - name: Bootstrap test project
+        run: |
+          mkdir -p Assets ProjectSettings Packages
+
+          cat > Packages/manifest.json << 'JSON'
+          {
+            "dependencies": {
+              "com.cuvara.dots": "file:../package",
+              "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.4.0",
+              "com.cysharp.unitask": "2.5.10",
+              "com.unity.entities": "1.4.8",
+              "com.unity.burst": "1.8.30",
+              "com.unity.collections": "2.6.8",
+              "com.unity.mathematics": "1.3.2",
+              "com.rpgmmo.shared-gamelogic": "https://github.com/Cuvara/rpg-mmo-server.git?path=/backend/gameserver-dotnet/Shared.GameLogic#sgl-v0.1.6"
+            },
+            "scopedRegistries": [
+              {
+                "name": "OpenUPM",
+                "url": "https://package.openupm.com",
+                "scopes": ["com.cysharp", "jp.hadashikick"]
+              }
+            ],
+            "testables": ["com.cuvara.dots"]
+          }
+          JSON
+
+          cat > ProjectSettings/ProjectSettings.asset << 'YAML'
+          %YAML 1.1
+          %TAG !u! tag:unity3d.com,2011:
+          --- !u!129 &1
+          PlayerSettings:
+            companyName: Cuvara
+            productName: DotsTest
+          YAML
+
+      - name: Run tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.3.9f1
+          testMode: all
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Test Results (netcode 0.4.0)
+          artifactsPath: artifacts
+
+      - name: Adapter assembly must be present
+        if: always()
+        run: |
+          if [ ! -f Library/ScriptAssemblies/Cuvara.DOTS.Netcode.dll ]; then
+            echo "::error::Cuvara.DOTS.Netcode.dll was NOT built with com.cuvara.netcode 0.4.0 installed — the versionDefines expression is wrong and the adapter silently does not exist"
+            exit 1
+          fi
+          echo "Cuvara.DOTS.Netcode.dll present."
+
+      # The floor that matters most: 44 adapter tests, not ">= 0". Without it a
+      # mis-typed versionDefines expression compiles the adapter and all its
+      # tests out of existence and this job goes green over nothing.
+      - name: Assert test floors
+        if: always()
+        run: |
+          python3 package/.github/scripts/assert_test_floors.py artifacts \
+            'Cuvara.DOTS.Tests.Editor>=30' \
+            'Cuvara.DOTS.Tests.Runtime>=23' \
+            'Cuvara.DOTS.Tests.GameLogic>=8' \
+            'Cuvara.DOTS.Tests.Netcode>=44'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-with-netcode
+          path: artifacts/
