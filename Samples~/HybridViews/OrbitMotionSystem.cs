@@ -14,7 +14,15 @@ namespace Cuvara.DOTS.Samples.HybridViews
     /// simulation, so whatever this writes is what the views show in the same frame. That
     /// relationship is the thing the sample is demonstrating — move this system into presentation
     /// and the views go one frame stale.
+    /// <para>
+    /// The group is named explicitly rather than left to the default, matching the package's own
+    /// rule: no system should sit in a group by accident. A sample system stays in Unity's
+    /// <see cref="SimulationSystemGroup"/> rather than in the package's <c>MovementSystemGroup</c>
+    /// because that group is <c>[DisableAutoCreation]</c> and created by
+    /// <c>DotsViewBootstrap</c> — an auto-created system cannot reliably be placed inside it.
+    /// </para>
     /// </remarks>
+    [UpdateInGroup(typeof(SimulationSystemGroup))]
     [BurstCompile]
     public partial struct OrbitMotionSystem : ISystem
     {

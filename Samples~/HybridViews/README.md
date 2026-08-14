@@ -12,7 +12,8 @@ primitives, and the Console narrates what the chunk reference counts do while it
    `GameObject.CreatePrimitive` and a `Stack<GameObject>` pool. It also accepts a serialized prefab
    per key if you would rather look at your own art.
 3. **Transform sync.** `OrbitMotionSystem` (a Bursted `ISystem` + `IJobEntity`) writes
-   `LocalTransform` in `SimulationSystemGroup`; the package's sync system copies it onto the
+   `LocalTransform` in `SimulationSystemGroup`; `TransformSystemGroup` bakes that into
+   `LocalToWorld`, which the package's sync system copies onto the
    `Transform` later in the same frame, from `PresentationSystemGroup`. The views move and spin
    because of that, and nothing else.
 4. **Despawn and recycle.** Half the entities are destroyed mid-run. Their views return to the pool

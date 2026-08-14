@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EntityViewRegistry` keeps their handles and the entities keep an `EntityViewLink` that will never
   resolve or respawn. The package has no chunk→entity ownership model, so callers must despawn the
   entities before releasing the chunk.
+- Sample updated for the 0.4.0 transform change: entities created from code now add `LocalToWorld`
+  explicitly (`TransformSystemGroup` writes into it but does not add it — baking would, runtime
+  creation does not), and `OrbitMotionSystem` names its group instead of relying on the default.
 
 ## [0.4.0] - 2026-08-14
 

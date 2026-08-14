@@ -242,7 +242,17 @@ namespace Cuvara.DOTS.Samples.HybridViews
             var entity = entityManager.CreateEntity();
             var phase = math.PI * 2f * index / of;
 
-            entityManager.AddComponentData(entity, LocalTransform.FromPosition(new float3(radius, height, 0f)));
+            var start = new float3(radius, height, 0f);
+            entityManager.AddComponentData(entity, LocalTransform.FromPosition(start));
+
+            // LocalToWorld has to be added explicitly. TransformSystemGroup writes into it but does
+            // not add it: baking would, and creating an entity from code does not. Without it the
+            // package's sync system — which reads LocalToWorld, so that parented entities work —
+            // never matches this entity and its view sits at the origin forever.
+            entityManager.AddComponentData(entity, new LocalToWorld
+            {
+                Value = float4x4.TRS(start, quaternion.identity, new float3(1f, 1f, 1f)),
+            });
             entityManager.AddComponentData(entity, new OrbitMotion
             {
                 Radius = radius,
