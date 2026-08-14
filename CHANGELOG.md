@@ -37,7 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Running the sample from an unfocused Editor needs `Application.runInBackground`.** With the
   Editor in the background the player loop does not tick — the observed symptom is play mode active
   with `Time.time == 0` and `frameCount == 1`, so the sample logs step 1 and appears to hang. This is
-  Editor behaviour, not a package or sample defect.
+  Editor behaviour, not a package or sample defect. Now written up as a troubleshooting section in
+  the sample README, alongside the duplicate-sample case: two version folders under
+  `Assets/Samples/Cuvara DOTS/` collide on the assembly name
+  `Cuvara.DOTS.Samples.HybridViews` and block play mode until the stale one is deleted, because
+  importing a sample does not remove the copy a previous version left behind.
 
 ## [0.6.2] - 2026-08-14
 

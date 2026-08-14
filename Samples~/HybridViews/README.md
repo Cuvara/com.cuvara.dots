@@ -70,6 +70,27 @@ Prefer to build the scene yourself? Add an empty GameObject to any scene, add th
 Nothing is authored in a subscene and no baking is involved: the entities are created from script
 in `Start`, into `World.DefaultGameObjectInjectionWorld`.
 
+## Troubleshooting
+
+**"It logs step 1 and then hangs."** The Editor is in play mode but not ticking. An unfocused Unity
+Editor does not run the player loop unless *Run In Background* is on, and the sample's timeline is
+driven by `Time.time` in `Update`, so it stops dead after the first step. Observed symptoms while
+play mode is active:
+
+```
+Time.time = 0        frameCount = 1        Application.runInBackground = False
+```
+
+Fix it with any of: keep the Editor focused, enable **Project Settings → Player → Run In
+Background**, or set `Application.runInBackground = true` at runtime. This is Editor behaviour and
+not a defect in the sample or the package — every entity, view and refcount is exactly where the
+last ticked frame left it, and the timeline resumes on its own once frames run again.
+
+**"Assembly with name 'Cuvara.DOTS.Samples.HybridViews' already exists."** Two copies of the sample
+are imported under `Assets/Samples/Cuvara DOTS/`, usually one per package version after an upgrade.
+Assembly names must be unique project-wide, so this blocks play mode entirely. Delete the stale
+version folder — importing a sample does not remove the copy the previous version left behind.
+
 ## What you do NOT need
 
 The sample references only `Cuvara.DOTS.Runtime` plus `Unity.Entities`, `Unity.Burst`,
