@@ -5,6 +5,157 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-14
+
+CI/CD, for the first time. This repository had no `.github/` at all.
+
+### Added — delivery
+
+- **`release.yml`**, driven by a `v*` tag and **only** by a tag. No branch trigger: `npm publish`
+  cannot be undone, and a bad version can only be superseded, never withdrawn. Pushing the tag is the
+  last human gate before a permanent artifact exists.
+  - **`Verify package.json version matches tag`**, a hard `exit 1`. Content checked against label by
+    machine — the defect class that has cost this workspace the most.
+  - Release notes are `awk`-extracted from the `## [VERSION]` CHANGELOG heading, which makes the
+    CHANGELOG load-bearing rather than decorative: a missing or misspelled heading ships empty notes.
+    A warning fires when the extraction comes back empty.
+  - **`publish` job**, `needs: release`, publishing **`@cuvara/dots`** to GitHub Packages. The UPM
+    name in `package.json` is `com.cuvara.dots`; GitHub Packages requires an npm scope, so the name is
+    rewritten at publish time only and never committed. The rewrite asserts the expected input name
+    first, so a rename upstream fails the publish instead of silently publishing something else.
+- **`release-reminder.yml`** — never tags, never publishes; only notices that `main` carries an
+  untagged version. Three states: tag on this commit (notice), tag elsewhere so commits since are
+  unreleased (warning), no tag (warning with the exact commands). Needs `fetch-depth: 0`; a shallow
+  fetch has no tags and would make every version look untagged. **It matters more here than in
+  netcode**: the consuming project takes this package as a git *subtree*, so nothing downstream breaks
+  when a version goes untagged and nothing downstream notices either.
+
+**On publishing at all**: the project consumes this package as a subtree, so a registry artifact has
+no current consumer. That was raised and overruled — publishing is wanted, and the argument is
+recorded here rather than re-litigated. The consequence is what the gate section is about: publishing
+turns every tag into a permanent artifact, so the test floors stop being hygiene and become the only
+thing between an untested commit and an immutable version.
+
+### Added — the gate
+
+- **CI, for the first time.** This repository had no `.github/` at all. That was *honest* — a
+  repository with no checks cannot mislead anyone — but it meant every verification the package ever
+  had came from one person's Editor, and the numbers quoted in earlier releases were the consuming
+  project's, not this package's.
+
+  The gate deliberately does **not** assert "the test runner exited zero". A green run over **zero
+  tests** is worse than no gate: it converts the absence of verification into a positive signal and
+  spends the reviewer's budget for them. That is not hypothetical — `com.cuvara.netcode`'s gate
+  reported `No tests were executed. 0/0 Passed` under a green check while a breaking interface change
+  went through it.
+
+  **This package is unusually exposed to that failure, by its own design.** Two of its four test
+  assemblies are compiled out when their optional dependency is missing:
+
+  | Assembly | Vanishes without |
+  |---|---|
+  | `Cuvara.DOTS.Tests.Netcode` | `com.cuvara.netcode` >= 0.4.0 |
+  | `Cuvara.DOTS.Tests.GameLogic` | `com.rpgmmo.shared-gamelogic` |
+
+  Nothing fails when they vanish. "Absent beats broken" is the right rule for a *consumer* and a
+  dangerous one for a *gate*, and the workflow is where those two jobs are told apart.
+
+- **`.github/scripts/assert_test_floors.py`** — per-assembly test-count floors parsed from the NUnit
+  XML, never an exit code. `Assembly>=N` fails if the assembly ran nothing, which is what catches an
+  assembly compiled out of existence; `Assembly==0` is satisfied by an absent assembly, which is what
+  "correctly compiled out" looks like. Counts come from the `test-case` elements rather than the
+  suite's own `total`/`passed` attributes, because those vary across Unity and NUnit versions and a
+  missing attribute reads as zero — indistinguishable from the failure being checked for. A
+  non-passing case fails the run independently of any floor.
+- **`.github/scripts/test_assert_test_floors.py`** — 11 self-tests for the floor script, run in
+  `validate`, no Unity needed. The gate is a program and it was wrong once; case 7 is the regression
+  test for the `.dll`-suffix bug specifically, and one case asserts that a spec written `Foo.dll` is
+  **not** silently accepted, because normalisation happens on one side only — a spec that can be
+  written two ways will be written both ways.
+- **`.github/scripts/check_metas.py`** — every Unity-visible tracked file and folder must have a
+  committed `.meta`. Same failure family: a missing `.meta` disabled parts of this package for seven
+  releases without failing anything.
+
+### Two configurations, and one of them is not yet provable
+
+| Job | Asserts |
+|---|---|
+| `Unity Tests (netcode absent)` | `Cuvara.DOTS.Netcode.dll` **absent**; Editor >= 30, Runtime >= 23, GameLogic >= 8, **Netcode == 0** |
+| `Unity Tests (netcode 0.4.0)` | `Cuvara.DOTS.Netcode.dll` **present**; the same three, plus **Netcode >= 44** |
+
+The first automates the standalone-install check that had been carried by hand — the one a human
+stops re-running once it has passed twice. **The second cannot pass until `com.cuvara.netcode`
+v0.4.0 is tagged**, and is left red rather than trimmed to make the run green. A gate shaped to pass
+is the thing this whole file argues against.
+
+Floors are lower bounds, not headcounts: they stop an assembly vanishing, and do not need editing
+every time a test is added.
+
+### Also
+
+- The `pull_request` trigger fires on **every** base branch, not only `main`. netcode's fires only on
+  PRs into `main`, so a stacked PR — how this repo has actually been shipping, #5 based on #4 — is
+  ungated there.
+
+### Proven by running it, including the red run
+
+The scripts were exercised locally in both directions first (a missing `.meta` caught; floors
+passing, and failing on a compiled-out assembly, an empty artifacts directory, a missing directory,
+and a met floor with a failing test inside it). Then the workflow was landed with a **deliberately
+failing test**, because a gate that has only ever been green is indistinguishable from one that
+cannot fail.
+
+**The red run earned its keep immediately — it found a bug in the gate itself.** Unity names the
+NUnit Assembly suite after the built *file*, `Cuvara.DOTS.Tests.Editor.dll`, while the floor specs
+name the *assembly*. Every floor therefore read `actual 0` while 95 test cases had in fact executed
+and were printed two lines above. The bug failed **closed** — permanently red, never falsely green —
+but the obvious fix for a permanently red gate is to lower the floors, which would have produced
+exactly the useless gate this file argues against. Nothing but a real run would have surfaced it.
+
+Real counts observed, and the floors now match them: `Tests.Editor` 30, `Tests.Runtime` 23,
+`Tests.GameLogic` **41** — not the 8 a static `[Test]` grep suggested, because its `[TestCase]`
+source expands — and `Tests.Netcode` 44 once netcode resolves.
+
+The red run also confirmed two things that had only ever been argued: `Cuvara.DOTS.Netcode.dll` **is**
+absent with no netcode installed (the standalone-install check, now automated rather than carried by
+hand), and a single failing test does fail the run through the floor script independently of any
+floor.
+
+### Final numbers, both configurations green
+
+| Assembly | netcode absent | netcode 0.4.0 |
+|---|---|---|
+| `Cuvara.DOTS.Tests.Editor` | 30/30 | 30/30 |
+| `Cuvara.DOTS.Tests.GameLogic` | 41/41 | 41/41 |
+| `Cuvara.DOTS.Tests.Runtime` (PlayMode) | 23/23 | 23/23 |
+| `Cuvara.DOTS.Tests.Netcode` | **0, and required to be 0** | **44/44** |
+| `Cuvara.DOTS.Netcode.dll` | **absent** | **present** |
+
+Both halves of the `versionDefines` check are now automated and passing, which retires the manual
+"remove the package and look" pass as the only evidence.
+
+### Found in another package
+
+`com.cuvara.netcode` 0.4.0 has **two undeclared dependencies** that a rich host project happens to
+satisfy — so both are invisible in the Editor and appear only in a minimal project like CI.
+
+1. **VContainer.** `Cuvara.Netcode.Runtime.asmdef` lists it in `references` with no
+   `defineConstraints` gate and no `package.json` dependency. Fails loudly: `CS0246` from inside the
+   package.
+2. **`System.Runtime.CompilerServices.Unsafe`.** netcode ships `Runtime/Plugins/Google.Protobuf.dll`,
+   which needs it; netcode neither ships it nor depends on it. **Fails silently, and cascades:**
+   `Google.Protobuf` does not load → `Cuvara.Netcode.Runtime` does not load → `Cuvara.DOTS.Netcode`
+   does not load → `Cuvara.DOTS.Tests.Netcode` does not load → 44 tests do not run, **and the runner
+   still exits 0**. The real project masks it with four separate providers (`com.gdk.core`, Burst, a
+   NuGet folder, and R3's transitive `org.nuget.system.runtime.compilerservices.unsafe`).
+
+The second is very likely the root cause of netcode's own `No tests were executed. 0/0 Passed`: its
+test assembly references the same runtime assembly that fails to load, so its test count collapses to
+zero by the same cascade.
+
+Both are worked around in this workflow's manifest, with a comment saying they are someone else's
+defects rather than dependencies of this package.
+
 ## [0.10.0] - 2026-08-14
 
 Prepares for prediction by giving the local player's transform a single writer, **before** a predictor
@@ -67,11 +218,13 @@ state; the anchor written for remotes; `PredictedTransform` suppressing the tran
 anchor still lands; removing the tag handing the transform back; and — the guard for the shortcut not
 taken — the local entity moving exactly as before when no predictor exists.
 
-### Unverified
+### Verified after the fact
 
-**Not compiled.** Everything 0.9.0 lists, plus: `EntityManager.HasComponent<PredictedTransform>` per
-entity per state is one lookup on the same path that already calls `HasComponent<Health>`, so it is no
-new shape — but it is unmeasured, and no performance claim is made for it.
+This shipped uncompiled. It is compiled now: the CI gate added in 0.11.0 runs the adapter's tests
+against `com.cuvara.netcode` 0.4.0 and reports **44/44 passing**, which covers everything this release
+added. The one claim still not made is a performance claim —
+`EntityManager.HasComponent<PredictedTransform>` per entity per state is one lookup on a path that
+already calls `HasComponent<Health>`, so it is no new shape, but it remains unmeasured.
 
 ## [0.9.0] - 2026-08-14
 
@@ -150,10 +303,14 @@ landing on `NetworkEntity`, unmapped and empty kinds refused, the once-per-kind 
 ordinal matching, duplicate/incomplete rules throwing at construction, and a respawn that re-resolves
 a *different* kind for a reused id.
 
-### Unverified
+### Verified after the fact
 
-**Nothing here has been compiled.** Same as 0.8.0 — no Unity Editor was available on this side. The
-specific claims a build has to settle:
+**This shipped uncompiled**, and the list below is what a build had to settle. The CI gate added in
+0.11.0 settled all of it: `Cuvara.DOTS.Netcode.dll` is **absent** under no netcode and **present**
+under 0.4.0, so the `versionDefines` expression `"0.4.0"` behaves as ">= 0.4.0"; `FixedString32Bytes`
+as an `IComponentData` field and the `in`-parameter interface implementation both compile; and all
+**44/44** tests pass. The original list, kept because the reasoning is still the reason each one
+mattered:
 
 - The `versionDefines` expression `"0.4.0"` behaving as "0.4.0 or newer". The check is that
   `Cuvara.DOTS.Netcode.dll` **disappears** under netcode 0.3.2 and **appears** under 0.4.0. If the
