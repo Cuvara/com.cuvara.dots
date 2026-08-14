@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-14
+
+### Fixed
+
+- **First compile: five errors, from two missing assembly references.**
+  - `Unity.Transforms` added to `Cuvara.DOTS.Runtime`, `Cuvara.DOTS.Tests.Runtime`,
+    `Cuvara.DOTS.Tests.Editor` and the sample assembly. `LocalToWorld` and `TransformSystemGroup`
+    live in `Unity.Transforms`, which is a separate assembly from `Unity.Entities` — this was fallout
+    from the `LocalTransform` → `LocalToWorld` change, where the reference was never added, and it
+    had been asserted rather than checked.
+  - `UniTask` added to `Cuvara.DOTS.DI`. MessagePipe's `ISubscriber<T>` surface exposes `UniTask` in
+    its signatures, so a reference to it is required to compile against that interface at all.
+- Audited every asmdef's `references` against the types its files actually use, rather than fixing
+  only the assemblies that happened to error. Three of the four `Unity.Transforms` gaps were in
+  assemblies the compiler had not reached yet.
+
+### Notes
+
+- The package produced **no** assemblies until its `.meta` files were committed: a git-URL install
+  lands in `Library/PackageCache`, which Unity treats as immutable, so it would not generate them and
+  silently ignored every source file. Nothing in 0.1.0–0.6.1 had ever been compiled. Add a `.meta`
+  alongside every new file or the same silence returns.
+
 ## [0.6.1] - 2026-08-14
 
 ### Changed
