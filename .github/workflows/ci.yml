@@ -173,7 +173,7 @@ jobs:
   # commit hash", which is the row doing its job.
   # ---------------------------------------------------------------------------
   test-with-netcode:
-    name: Unity Tests (netcode 0.4.1)
+    name: Unity Tests (netcode 0.6.0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,9 +200,13 @@ jobs:
       #
       # So this job answers the open question honestly: with OpenUPM configured
       # and nothing hand-fed, does netcode 0.4.1 resolve, compile and load? The
-      # prediction on writing this is that VContainer resolves (declared + registry
-      # reachable) and that Google.Protobuf still fails to load, because 0.4.1
-      # neither ships System.Runtime.CompilerServices.Unsafe nor depends on it.
+      # prediction on writing this was that VContainer would resolve and that
+      # Google.Protobuf would still fail to load. Half right: VContainer resolved
+      # from netcode's own declaration, and Google.Protobuf loaded too, because
+      # 0.4.1 set `validateReferences: 0` on its plugin meta rather than declaring
+      # the missing assembly. That is Unity's documented remedy and it loads, but
+      # it defers the risk to runtime instead of removing it — nothing here
+      # exercises a Protobuf path, so nothing here covers it.
       # If this row fails, the failure IS the finding — do not feed it.
       - name: Bootstrap test project
         run: |
@@ -212,7 +216,7 @@ jobs:
           {
             "dependencies": {
               "com.cuvara.dots": "file:../package",
-              "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.4.1",
+              "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.6.0",
               "com.unity.entities": "1.4.8",
               "com.unity.burst": "1.8.30",
               "com.unity.collections": "2.6.8",
@@ -249,7 +253,7 @@ jobs:
           unityVersion: 6000.3.9f1
           testMode: all
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          checkName: Test Results (netcode 0.4.1)
+          checkName: Test Results (netcode 0.6.0)
           artifactsPath: artifacts
 
       - name: Adapter assembly must be present
@@ -277,7 +281,7 @@ jobs:
             'Cuvara.DOTS.Tests.Editor>=30' \
             'Cuvara.DOTS.Tests.Runtime>=23' \
             'Cuvara.DOTS.Tests.GameLogic>=41' \
-            'Cuvara.DOTS.Tests.Netcode>=44'
+            'Cuvara.DOTS.Tests.Netcode>=47'
 
       - uses: actions/upload-artifact@v4
         if: always()
