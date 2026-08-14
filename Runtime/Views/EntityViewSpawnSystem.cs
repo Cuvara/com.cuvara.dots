@@ -21,7 +21,9 @@ namespace Cuvara.DOTS.Views
     /// finished warming stays invisible for a few frames.
     /// </para>
     /// </remarks>
-    [UpdateInGroup(typeof(PresentationSystemGroup))]
+    // In the lifecycle group, after despawn — see EntityViewDespawnSystem for why that order.
+    [UpdateInGroup(typeof(CuvaraViewLifecycleGroup))]
+    [UpdateAfter(typeof(EntityViewDespawnSystem))]
     public partial struct EntityViewSpawnSystem : ISystem
     {
         private EntityQuery _pending;

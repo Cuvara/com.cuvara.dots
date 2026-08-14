@@ -23,6 +23,20 @@ compiled and the core still works — you construct `EntityViewRegistry` yoursel
 `IViewAssetProvider` over whatever pool you do have. **The core assembly references neither**, and
 installs against its four pinned Unity dependencies alone.
 
+## System groups
+
+```
+PresentationSystemGroup
+└── CuvaraViewPresentationGroup          reads LocalTransform after the sim wrote it
+    ├── CuvaraViewLifecycleGroup         structural changes: views appear/disappear
+    │   ├── EntityViewDespawnSystem      first, so freed instances are reusable this frame
+    │   └── EntityViewSpawnSystem        UpdateAfter despawn
+    └── CuvaraViewTransformSyncGroup     UpdateAfter the lifecycle group; no structural changes
+        └── EntityViewTransformSyncSystem
+```
+
+Order your own presentation systems against the groups, not against individual package systems.
+
 ## Usage
 
 ```csharp

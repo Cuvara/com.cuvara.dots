@@ -30,8 +30,9 @@ namespace Cuvara.DOTS.Views
     /// wrote. That is a sync point every frame.
     /// </para>
     /// </remarks>
-    [UpdateInGroup(typeof(PresentationSystemGroup))]
-    [UpdateAfter(typeof(EntityViewDespawnSystem))]
+    // Sole member of the sync group, which runs after the lifecycle group — so this frame's new
+    // views are positioned this frame, and no view it touches is about to be recycled.
+    [UpdateInGroup(typeof(CuvaraViewTransformSyncGroup))]
     public partial struct EntityViewTransformSyncSystem : ISystem
     {
         private EntityQuery _linked;

@@ -26,8 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PresentationSystemGroup`: spawn, despawn and per-frame `LocalTransform` → `Transform` sync.
 - **`Cuvara.DOTS.VContainer`** — optional `RegisterDotsViews()` registration extension, mirroring
   `GameFoundationVContainer.RegisterGameFoundation`. The caller supplies the `IViewAssetProvider`.
-- Tests: reference-count semantics of the chunk provisioner (edit mode) and the entity→view
-  spawn/despawn/sync lifecycle against an isolated `World` (play mode).
+- **Explicit system group hierarchy.** `CuvaraViewPresentationGroup` (in `PresentationSystemGroup`)
+  contains `CuvaraViewLifecycleGroup` (despawn, then spawn) and `CuvaraViewTransformSyncGroup`
+  (`UpdateAfter` the lifecycle group). No package system sits in a default group or relies on
+  implicit creation order, and consumers order their own systems against the package groups rather
+  than against individual systems.
+- Tests: reference-count semantics of the chunk provisioner (edit mode), the entity→view
+  spawn/despawn/sync lifecycle against an isolated `World` (play mode), and reflection assertions
+  on the group attributes (edit mode) — a misplaced `[UpdateInGroup]` never fails a build and shows
+  up only as views trailing the simulation by a frame.
 
 ### Changed
 
