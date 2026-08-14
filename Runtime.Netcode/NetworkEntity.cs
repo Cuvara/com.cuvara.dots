@@ -25,6 +25,27 @@ namespace Cuvara.DOTS.Netcode
         /// <summary>The replicated id, exactly as it arrived on the wire.</summary>
         public FixedString64Bytes Id;
 
+        /// <summary>
+        /// The server's entity kind — <c>"player"</c>, <c>"mob"</c>, and so on. Empty when the
+        /// server sent none.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Carried so a system can filter by kind — "damage every mob in range" — without a managed
+        /// lookup. It is what the reference implementation's <c>EnemyTag</c> was for, expressed as
+        /// data rather than as a tag per kind, because the package cannot know the kinds and a tag
+        /// it cannot name is not a tag it can add.
+        /// </para>
+        /// <para>
+        /// <b>A shorter string than <see cref="Id"/>, and truncating.</b> 29 usable bytes holds every
+        /// kind the schema names with room to spare, and a kind long enough to truncate is one this
+        /// build does not understand anyway. The truncation is confined to this convenience field:
+        /// archetype resolution runs on the managed string before the command is queued, so a long
+        /// kind still resolves to the right archetype and only reads back clipped here.
+        /// </para>
+        /// </remarks>
+        public FixedString32Bytes Type;
+
         /// <summary>True for the entity whose id equals the local player's.</summary>
         public bool IsLocal;
     }

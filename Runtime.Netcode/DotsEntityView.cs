@@ -86,8 +86,8 @@ namespace Cuvara.DOTS.Netcode
         /// and view key are carried on the command so the drain needs no managed lookup.
         /// </param>
         /// <param name="resolver">
-        /// Decides the archetype for an id. See <see cref="INetworkArchetypeResolver"/> for why the
-        /// id is all there is to go on.
+        /// Decides the archetype from the server's entity kind. See
+        /// <see cref="TypeArchetypeResolver"/> for the built-in implementation.
         /// </param>
         /// <param name="mapping">
         /// Where the server's 2D plane lives in the client's world. Defaults to
@@ -124,16 +124,19 @@ namespace Cuvara.DOTS.Netcode
         /// <summary>True when the wire's hp is also written to <c>Health</c>.</summary>
         public bool WritesHealth => _writeHealth;
 
-        public void Spawn(string id, bool isLocal)
+        public void Spawn(string id, bool isLocal, string type)
         {
             if (string.IsNullOrEmpty(id)) return;
 
             if (!_live.Add(id)) return;
 
-            if (!TryResolveConfig(id, isLocal, out var index, out var key))
+            var descriptor = new NetworkEntityDescriptor(id, type, isLocal);
+
+            if (!TryResolveConfig(descriptor, out var index, out var key))
             {
-                // Resolution failed loudly already. Left out of _live so a later snapshot with a
-                // working catalog can still spawn it.
+                // Resolution failed loudly already — either the resolver refused the kind, or the
+                // archetype it named is not in the catalog. Left out of _live so a later snapshot
+                // with a working catalog can still spawn it.
                 _live.Remove(id);
                 return;
             }
@@ -148,10 +151,17 @@ namespace Cuvara.DOTS.Netcode
                 return;
             }
 
+            // Truncated rather than refused, unlike the id: this copy is a convenience field for
+            // consumer queries, and resolution already ran on the full managed string above, so a
+            // long kind still reached the right archetype.
+            var wireType = default(FixedString32Bytes);
+            wireType.CopyFromTruncated(descriptor.Type);
+
             _commands.Enqueue(new NetworkViewCommand
             {
                 Kind = NetworkViewCommandKind.Spawn,
                 Id = wireId,
+                Type = wireType,
                 IsLocal = isLocal,
                 ConfigIndex = index,
                 ViewKey = key,
@@ -180,10 +190,10 @@ namespace Cuvara.DOTS.Netcode
         {
             if (string.IsNullOrEmpty(id)) return;
 
-            // A state for an id that was never spawned is dropped rather than spawning one: Spawn
-            // carries isLocal and this does not, so an implicit spawn here would have to guess it,
-            // and guessing "not the local player" is wrong exactly once per session in the one case
-            // anyone notices.
+            // A state for an id that was never spawned is dropped rather than spawning one. Spawn
+            // carries the entity's kind and its isLocal flag; this carries neither, so an implicit
+            // spawn would have to invent both — and inventing the kind is precisely the guessing
+            // that netcode 0.4.0 removed from this layer.
             if (!_live.Contains(id)) return;
 
             var wireId = default(FixedString64Bytes);
@@ -212,27 +222,29 @@ namespace Cuvara.DOTS.Netcode
         internal bool TryDequeue(out NetworkViewCommand command) => _commands.TryDequeue(out command);
 
         /// <summary>
-        /// Resolves this id's archetype to a config index and view key, caching per id.
+        /// Resolves this entity's archetype to a config index and view key, caching per id.
         /// </summary>
         /// <remarks>
-        /// Cached because the resolver is consumer code and an id's archetype cannot change without a
-        /// despawn — an id that became a different creature is a different entity. The cache is
-        /// dropped on despawn so a reconnect re-resolves.
+        /// Cached because the resolver is consumer code and an entity's kind does not change over
+        /// its lifetime — which is exactly why netcode passes the type at spawn rather than on every
+        /// state. The cache is dropped on despawn so a re-entry into the AOI re-resolves.
         /// </remarks>
-        private bool TryResolveConfig(string id, bool isLocal, out int index, out FixedString64Bytes key)
+        private bool TryResolveConfig(in NetworkEntityDescriptor entity, out int index, out FixedString64Bytes key)
         {
             index = -1;
             key = default;
 
-            if (_configIndexById.TryGetValue(id, out index))
+            if (_configIndexById.TryGetValue(entity.Id, out index))
             {
                 key = _catalog[index].ViewKey;
                 return true;
             }
 
-            if (!_resolver.TryResolve(id, isLocal, out var archetypeName) || string.IsNullOrEmpty(archetypeName))
+            if (!_resolver.TryResolve(entity, out var archetypeName) || string.IsNullOrEmpty(archetypeName))
             {
-                // Not an error: a resolver returning false is saying this id is not presentable.
+                // Not an error here: a resolver returning false is saying this entity is not
+                // presentable, and it is the thing that knows why — TypeArchetypeResolver logs the
+                // unmapped kind itself.
                 return false;
             }
 
@@ -251,7 +263,7 @@ namespace Cuvara.DOTS.Netcode
                 return false;
             }
 
-            _configIndexById[id] = index;
+            _configIndexById[entity.Id] = index;
             key = _catalog[index].ViewKey;
             return true;
         }
