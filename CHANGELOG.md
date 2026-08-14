@@ -87,14 +87,40 @@ absent with no netcode installed (the standalone-install check, now automated ra
 hand), and a single failing test does fail the run through the floor script independently of any
 floor.
 
+### Final numbers, both configurations green
+
+| Assembly | netcode absent | netcode 0.4.0 |
+|---|---|---|
+| `Cuvara.DOTS.Tests.Editor` | 30/30 | 30/30 |
+| `Cuvara.DOTS.Tests.GameLogic` | 41/41 | 41/41 |
+| `Cuvara.DOTS.Tests.Runtime` (PlayMode) | 23/23 | 23/23 |
+| `Cuvara.DOTS.Tests.Netcode` | **0, and required to be 0** | **44/44** |
+| `Cuvara.DOTS.Netcode.dll` | **absent** | **present** |
+
+Both halves of the `versionDefines` check are now automated and passing, which retires the manual
+"remove the package and look" pass as the only evidence.
+
 ### Found in another package
 
-`com.cuvara.netcode` 0.4.0 **does not compile standalone**: `Cuvara.Netcode.Runtime.asmdef` lists
-`VContainer` in `references` with no `defineConstraints` gate and no `package.json` dependency on it,
-so a project without VContainer gets `CS0246` from inside the package. netcode's own CI never sees it
-because its bootstrap manifest always installs VContainer. This workflow installs VContainer too, and
-says in a comment that doing so is a workaround for someone else's defect rather than a property of
-this package.
+`com.cuvara.netcode` 0.4.0 has **two undeclared dependencies** that a rich host project happens to
+satisfy — so both are invisible in the Editor and appear only in a minimal project like CI.
+
+1. **VContainer.** `Cuvara.Netcode.Runtime.asmdef` lists it in `references` with no
+   `defineConstraints` gate and no `package.json` dependency. Fails loudly: `CS0246` from inside the
+   package.
+2. **`System.Runtime.CompilerServices.Unsafe`.** netcode ships `Runtime/Plugins/Google.Protobuf.dll`,
+   which needs it; netcode neither ships it nor depends on it. **Fails silently, and cascades:**
+   `Google.Protobuf` does not load → `Cuvara.Netcode.Runtime` does not load → `Cuvara.DOTS.Netcode`
+   does not load → `Cuvara.DOTS.Tests.Netcode` does not load → 44 tests do not run, **and the runner
+   still exits 0**. The real project masks it with four separate providers (`com.gdk.core`, Burst, a
+   NuGet folder, and R3's transitive `org.nuget.system.runtime.compilerservices.unsafe`).
+
+The second is very likely the root cause of netcode's own `No tests were executed. 0/0 Passed`: its
+test assembly references the same runtime assembly that fails to load, so its test count collapses to
+zero by the same cascade.
+
+Both are worked around in this workflow's manifest, with a comment saying they are someone else's
+defects rather than dependencies of this package.
 
 ## [0.10.0] - 2026-08-14
 
@@ -158,11 +184,13 @@ state; the anchor written for remotes; `PredictedTransform` suppressing the tran
 anchor still lands; removing the tag handing the transform back; and — the guard for the shortcut not
 taken — the local entity moving exactly as before when no predictor exists.
 
-### Unverified
+### Verified after the fact
 
-**Not compiled.** Everything 0.9.0 lists, plus: `EntityManager.HasComponent<PredictedTransform>` per
-entity per state is one lookup on the same path that already calls `HasComponent<Health>`, so it is no
-new shape — but it is unmeasured, and no performance claim is made for it.
+This shipped uncompiled. It is compiled now: the CI gate added in 0.11.0 runs the adapter's tests
+against `com.cuvara.netcode` 0.4.0 and reports **44/44 passing**, which covers everything this release
+added. The one claim still not made is a performance claim —
+`EntityManager.HasComponent<PredictedTransform>` per entity per state is one lookup on a path that
+already calls `HasComponent<Health>`, so it is no new shape, but it remains unmeasured.
 
 ## [0.9.0] - 2026-08-14
 
@@ -241,10 +269,14 @@ landing on `NetworkEntity`, unmapped and empty kinds refused, the once-per-kind 
 ordinal matching, duplicate/incomplete rules throwing at construction, and a respawn that re-resolves
 a *different* kind for a reused id.
 
-### Unverified
+### Verified after the fact
 
-**Nothing here has been compiled.** Same as 0.8.0 — no Unity Editor was available on this side. The
-specific claims a build has to settle:
+**This shipped uncompiled**, and the list below is what a build had to settle. The CI gate added in
+0.11.0 settled all of it: `Cuvara.DOTS.Netcode.dll` is **absent** under no netcode and **present**
+under 0.4.0, so the `versionDefines` expression `"0.4.0"` behaves as ">= 0.4.0"; `FixedString32Bytes`
+as an `IComponentData` field and the `in`-parameter interface implementation both compile; and all
+**44/44** tests pass. The original list, kept because the reasoning is still the reason each one
+mattered:
 
 - The `versionDefines` expression `"0.4.0"` behaving as "0.4.0 or newer". The check is that
   `Cuvara.DOTS.Netcode.dll` **disappears** under netcode 0.3.2 and **appears** under 0.4.0. If the
