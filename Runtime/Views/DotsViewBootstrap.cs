@@ -1,15 +1,30 @@
 using System;
+using Cuvara.DOTS.Groups;
 using Unity.Entities;
 
 namespace Cuvara.DOTS.Views
 {
     /// <summary>
-    /// Installs an <see cref="EntityViewRegistry"/> into a world so the view systems can find it.
+    /// Installs the package's system tree and its <see cref="EntityViewRegistry"/> into one named
+    /// world.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Plain static helper taking a <see cref="World"/> — no DI types, so the core assembly stays
     /// installable with only the four pinned Unity dependencies. The VContainer extension in
-    /// <c>Cuvara.DOTS.VContainer</c> is a two-line wrapper around this.
+    /// <c>Cuvara.DOTS.VContainer</c> is a thin wrapper around this.
+    /// </para>
+    /// <para>
+    /// <b>Why the systems are created here rather than by Unity.</b> The default bootstrap creates
+    /// every system that is not <see cref="DisableAutoCreationAttribute"/>-marked in <i>every</i>
+    /// world. In a multi-world setup — a thin client world beside a server world, or a test world
+    /// beside the default one — that would give two view groups driving the same
+    /// <see cref="EntityViewRegistry"/>, and every entity would get two GameObjects. Marking the
+    /// package's systems and groups <c>[DisableAutoCreation]</c> and creating them explicitly here
+    /// makes "which world presents" an argument rather than an accident. The
+    /// <c>RequireForUpdate&lt;EntityViewRegistryReference&gt;()</c> in each system is the second
+    /// layer: a group that somehow does get created in a registry-less world does nothing.
+    /// </para>
     /// </remarks>
     public static class DotsViewBootstrap
     {
@@ -43,7 +58,53 @@ namespace Cuvara.DOTS.Views
                 entityManager.GetComponentObject<EntityViewRegistryReference>(entity).Registry = registry;
             }
 
+            InstallSystems(world);
             return entity;
+        }
+
+        /// <summary>
+        /// Creates the package's group tree in <paramref name="world"/> and hangs it off the Unity
+        /// groups. Idempotent — <c>GetOrCreateSystemManaged</c> returns the existing instance, and
+        /// <c>AddSystemToUpdateList</c> ignores a system already in the list.
+        /// </summary>
+        /// <remarks>
+        /// The empty groups are created too. Their positions are part of the package's published
+        /// ordering surface from this version on, so a consumer's <c>[UpdateAfter]</c> resolves
+        /// today and does not change meaning when the systems that fill them land.
+        /// </remarks>
+        public static void InstallSystems(World world)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+
+            var initialization = world.GetOrCreateSystemManaged<InitializationSystemGroup>();
+            var simulation = world.GetOrCreateSystemManaged<SimulationSystemGroup>();
+            var presentation = world.GetOrCreateSystemManaged<PresentationSystemGroup>();
+
+            var netcode = world.GetOrCreateSystemManaged<NetcodeSystemGroup>();
+            var provisioning = world.GetOrCreateSystemManaged<ProvisioningSystemGroup>();
+            initialization.AddSystemToUpdateList(netcode);
+            initialization.AddSystemToUpdateList(provisioning);
+
+            var gameplay = world.GetOrCreateSystemManaged<GameplaySystemGroup>();
+            var movement = world.GetOrCreateSystemManaged<MovementSystemGroup>();
+            var lifecycle = world.GetOrCreateSystemManaged<LifecycleSystemGroup>();
+            var commandBuffer = world.GetOrCreateSystemManaged<DotsEndSimulationCommandBufferSystem>();
+            simulation.AddSystemToUpdateList(gameplay);
+            gameplay.AddSystemToUpdateList(movement);
+            gameplay.AddSystemToUpdateList(lifecycle);
+            gameplay.AddSystemToUpdateList(commandBuffer);
+
+            var view = world.GetOrCreateSystemManaged<ViewSystemGroup>();
+            presentation.AddSystemToUpdateList(view);
+            view.AddSystemToUpdateList(world.GetOrCreateSystem<EntityViewSpawnSystem>());
+            view.AddSystemToUpdateList(world.GetOrCreateSystem<EntityViewDespawnSystem>());
+            view.AddSystemToUpdateList(world.GetOrCreateSystem<EntityViewTransformSyncSystem>());
+
+            // Sorting is not automatic after a manual add: without this the UpdateAfter chain inside
+            // each group is declared but not applied.
+            initialization.SortSystems();
+            simulation.SortSystems();
+            presentation.SortSystems();
         }
 
         /// <summary>

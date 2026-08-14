@@ -27,17 +27,27 @@ installs against its four pinned Unity dependencies alone.
 
 ## System groups
 
+Every package system is `[DisableAutoCreation]` and created by `DotsViewBootstrap.Install(world, registry)`.
+Groups are `public` and are the ordering contract; the systems inside them are `internal` and will change.
+
 ```
-PresentationSystemGroup
-└── CuvaraViewPresentationGroup          reads LocalTransform after the sim wrote it
-    ├── CuvaraViewLifecycleGroup         structural changes: views appear/disappear
-    │   ├── EntityViewDespawnSystem      first, so freed instances are reusable this frame
-    │   └── EntityViewSpawnSystem        UpdateAfter despawn
-    └── CuvaraViewTransformSyncGroup     UpdateAfter the lifecycle group; no structural changes
-        └── EntityViewTransformSyncSystem
+InitializationSystemGroup                     [Unity]
+├── NetcodeSystemGroup                        (empty — v0.3 snapshot apply)
+└── ProvisioningSystemGroup                   UpdateAfter(NetcodeSystemGroup); empty
+SimulationSystemGroup                         [Unity]
+├── GameplaySystemGroup                       UpdateBefore(TransformSystemGroup)
+│   ├── MovementSystemGroup                   (empty)
+│   ├── LifecycleSystemGroup                  UpdateAfter(MovementSystemGroup); empty
+│   └── DotsEndSimulationCommandBufferSystem  OrderLast
+└── TransformSystemGroup                      [Unity]
+PresentationSystemGroup                       [Unity]
+└── ViewSystemGroup
+    ├── EntityViewSpawnSystem
+    ├── EntityViewDespawnSystem               UpdateAfter(EntityViewSpawnSystem)
+    └── EntityViewTransformSyncSystem         UpdateAfter(EntityViewDespawnSystem)
 ```
 
-Order your own presentation systems against the groups, not against individual package systems.
+Order your own systems against the groups: `[UpdateAfter(typeof(ViewSystemGroup))]`.
 
 ## Usage
 

@@ -1,5 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
+using Cuvara.DOTS.Groups;
 using Unity.Transforms;
 
 namespace Cuvara.DOTS.Views
@@ -21,10 +22,13 @@ namespace Cuvara.DOTS.Views
     /// finished warming stays invisible for a few frames.
     /// </para>
     /// </remarks>
-    // In the lifecycle group, after despawn — see EntityViewDespawnSystem for why that order.
-    [UpdateInGroup(typeof(CuvaraViewLifecycleGroup))]
-    [UpdateAfter(typeof(EntityViewDespawnSystem))]
-    public partial struct EntityViewSpawnSystem : ISystem
+    // First in ViewSystemGroup. Expressed as an UpdateAfter on the following systems rather than
+    // as OrderFirst here: Entities batches OrderFirst members separately and then drops ordering
+    // relations between that batch and normal members, so the relation that actually holds is the
+    // explicit one.
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ViewSystemGroup))]
+    internal partial struct EntityViewSpawnSystem : ISystem
     {
         private EntityQuery _pending;
 
@@ -53,8 +57,11 @@ namespace Cuvara.DOTS.Views
                 var key = entityManager.GetComponentData<EntityViewRequest>(entity).ViewKey.ToString();
                 if (!registry.IsWarm(key)) continue; // retried next frame, see remarks
 
-                var position = entityManager.HasComponent<LocalTransform>(entity)
-                    ? entityManager.GetComponentData<LocalTransform>(entity).Position
+                // LocalToWorld, not LocalTransform: LocalTransform is relative to the parent, so a
+                // parented entity would place its view at local coordinates. LocalToWorld is what
+                // TransformSystemGroup just computed and is correct either way.
+                var position = entityManager.HasComponent<LocalToWorld>(entity)
+                    ? entityManager.GetComponentData<LocalToWorld>(entity).Position
                     : default;
 
                 var viewId = registry.Spawn(key, position);

@@ -1,3 +1,4 @@
+using Cuvara.DOTS.Groups;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -30,17 +31,19 @@ namespace Cuvara.DOTS.Views
     /// wrote. That is a sync point every frame.
     /// </para>
     /// </remarks>
-    // Sole member of the sync group, which runs after the lifecycle group — so this frame's new
-    // views are positioned this frame, and no view it touches is about to be recycled.
-    [UpdateInGroup(typeof(CuvaraViewTransformSyncGroup))]
-    public partial struct EntityViewTransformSyncSystem : ISystem
+    // Last of the three: this frame's new views are already spawned and this frame's dead ones are
+    // already recycled, so every link it reads resolves to a live instance.
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ViewSystemGroup))]
+    [UpdateAfter(typeof(EntityViewDespawnSystem))]
+    internal partial struct EntityViewTransformSyncSystem : ISystem
     {
         private EntityQuery _linked;
 
         public void OnCreate(ref SystemState state)
         {
             _linked = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<EntityViewLink, LocalTransform>()
+                .WithAll<EntityViewLink, LocalToWorld>()
                 .Build(ref state);
 
             state.RequireForUpdate(_linked);

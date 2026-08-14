@@ -1,8 +1,10 @@
 using System;
 using System.Linq;
+using Cuvara.DOTS.Groups;
 using Cuvara.DOTS.Views;
 using NUnit.Framework;
 using Unity.Entities;
+using Unity.Transforms;
 
 namespace Cuvara.DOTS.Tests.Editor
 {
@@ -13,73 +15,128 @@ namespace Cuvara.DOTS.Tests.Editor
     /// </summary>
     public sealed class ViewSystemGroupLayoutTests
     {
-        private static Type GroupOf<T>()
+        private static Type GroupOf(Type type)
         {
-            var attribute = typeof(T).GetCustomAttributes(typeof(UpdateInGroupAttribute), false)
+            var attribute = type.GetCustomAttributes(typeof(UpdateInGroupAttribute), false)
                 .Cast<UpdateInGroupAttribute>()
                 .SingleOrDefault();
 
-            Assert.IsNotNull(attribute, $"{typeof(T).Name} must declare an explicit [UpdateInGroup]");
+            Assert.IsNotNull(attribute, $"{type.Name} must declare exactly one explicit [UpdateInGroup]");
             return attribute.GroupType;
         }
 
-        private static Type[] UpdateAfterOf<T>()
-        {
-            return typeof(T).GetCustomAttributes(typeof(UpdateAfterAttribute), false)
+        private static Type[] UpdateAfterOf(Type type) =>
+            type.GetCustomAttributes(typeof(UpdateAfterAttribute), false)
                 .Cast<UpdateAfterAttribute>()
-                .Select(attribute => attribute.SystemType)
+                .Select(a => a.SystemType)
                 .ToArray();
+
+        private static Type[] UpdateBeforeOf(Type type) =>
+            type.GetCustomAttributes(typeof(UpdateBeforeAttribute), false)
+                .Cast<UpdateBeforeAttribute>()
+                .Select(a => a.SystemType)
+                .ToArray();
+
+        private static readonly Type[] PackageSystems =
+        {
+            typeof(EntityViewSpawnSystem),
+            typeof(EntityViewDespawnSystem),
+            typeof(EntityViewTransformSyncSystem),
+        };
+
+        private static readonly Type[] PackageGroups =
+        {
+            typeof(NetcodeSystemGroup),
+            typeof(ProvisioningSystemGroup),
+            typeof(GameplaySystemGroup),
+            typeof(MovementSystemGroup),
+            typeof(LifecycleSystemGroup),
+            typeof(ViewSystemGroup),
+            typeof(DotsEndSimulationCommandBufferSystem),
+        };
+
+        [Test]
+        public void InitializationGroups_AreOrderedNetcodeThenProvisioning()
+        {
+            Assert.AreEqual(typeof(InitializationSystemGroup), GroupOf(typeof(NetcodeSystemGroup)));
+            Assert.AreEqual(typeof(InitializationSystemGroup), GroupOf(typeof(ProvisioningSystemGroup)));
+            CollectionAssert.Contains(UpdateAfterOf(typeof(ProvisioningSystemGroup)), typeof(NetcodeSystemGroup));
         }
 
         [Test]
-        public void PresentationGroup_IsInPresentation_NotSimulation()
+        public void GameplayGroup_RunsBeforeTheTransformSystems()
         {
-            // In SimulationSystemGroup the sync would read pre-TransformSystemGroup values and the
-            // views would trail the entities by a frame.
-            Assert.AreEqual(typeof(PresentationSystemGroup), GroupOf<CuvaraViewPresentationGroup>());
+            // Same parent group, so this ordering is legal and actually applied — and it is what
+            // guarantees a position written this frame reaches LocalToWorld this frame.
+            Assert.AreEqual(typeof(SimulationSystemGroup), GroupOf(typeof(GameplaySystemGroup)));
+            CollectionAssert.Contains(UpdateBeforeOf(typeof(GameplaySystemGroup)), typeof(TransformSystemGroup));
         }
 
         [Test]
-        public void LifecycleAndSyncGroups_NestUnderThePackageGroup()
+        public void GameplaySubGroups_AreOrderedMovementThenLifecycle()
         {
-            Assert.AreEqual(typeof(CuvaraViewPresentationGroup), GroupOf<CuvaraViewLifecycleGroup>());
-            Assert.AreEqual(typeof(CuvaraViewPresentationGroup), GroupOf<CuvaraViewTransformSyncGroup>());
+            Assert.AreEqual(typeof(GameplaySystemGroup), GroupOf(typeof(MovementSystemGroup)));
+            Assert.AreEqual(typeof(GameplaySystemGroup), GroupOf(typeof(LifecycleSystemGroup)));
+            CollectionAssert.Contains(UpdateAfterOf(typeof(LifecycleSystemGroup)), typeof(MovementSystemGroup));
         }
 
         [Test]
-        public void SyncGroup_RunsAfterLifecycleGroup()
+        public void CommandBufferSystem_IsLastInGameplay_NotUnitys()
         {
-            CollectionAssert.Contains(UpdateAfterOf<CuvaraViewTransformSyncGroup>(), typeof(CuvaraViewLifecycleGroup));
+            var attribute = typeof(DotsEndSimulationCommandBufferSystem)
+                .GetCustomAttributes(typeof(UpdateInGroupAttribute), false)
+                .Cast<UpdateInGroupAttribute>()
+                .Single();
+
+            Assert.AreEqual(typeof(GameplaySystemGroup), attribute.GroupType);
+            Assert.IsTrue(attribute.OrderLast, "playback must happen after every gameplay system");
         }
 
         [Test]
-        public void LifecycleSystems_AreInTheLifecycleGroup_DespawnBeforeSpawn()
+        public void ViewGroup_IsInPresentation_NotSimulation()
         {
-            Assert.AreEqual(typeof(CuvaraViewLifecycleGroup), GroupOf<EntityViewDespawnSystem>());
-            Assert.AreEqual(typeof(CuvaraViewLifecycleGroup), GroupOf<EntityViewSpawnSystem>());
-            CollectionAssert.Contains(UpdateAfterOf<EntityViewSpawnSystem>(), typeof(EntityViewDespawnSystem));
+            // In SimulationSystemGroup the sync would race TransformSystemGroup and the views would
+            // trail the entities by a frame.
+            Assert.AreEqual(typeof(PresentationSystemGroup), GroupOf(typeof(ViewSystemGroup)));
         }
 
         [Test]
-        public void SyncSystem_IsInTheSyncGroup()
+        public void ViewSystems_AreInTheViewGroup_SpawnDespawnSync()
         {
-            Assert.AreEqual(typeof(CuvaraViewTransformSyncGroup), GroupOf<EntityViewTransformSyncSystem>());
-        }
-
-        [Test]
-        public void NoViewSystem_LandsInADefaultGroup()
-        {
-            var systems = new[]
+            foreach (var system in PackageSystems)
             {
-                typeof(EntityViewSpawnSystem),
-                typeof(EntityViewDespawnSystem),
-                typeof(EntityViewTransformSyncSystem),
-            };
+                Assert.AreEqual(typeof(ViewSystemGroup), GroupOf(system), system.Name);
+            }
 
-            foreach (var system in systems)
+            CollectionAssert.Contains(UpdateAfterOf(typeof(EntityViewDespawnSystem)), typeof(EntityViewSpawnSystem));
+            CollectionAssert.Contains(UpdateAfterOf(typeof(EntityViewTransformSyncSystem)), typeof(EntityViewDespawnSystem));
+        }
+
+        [Test]
+        public void NoPackageSystemOrGroup_IsAutoCreated()
+        {
+            // Unity's default bootstrap creates every non-disabled system in EVERY world; two view
+            // groups driving one registry would double-spawn every entity.
+            foreach (var type in PackageSystems.Concat(PackageGroups))
             {
-                var attributes = system.GetCustomAttributes(typeof(UpdateInGroupAttribute), false);
-                Assert.AreEqual(1, attributes.Length, $"{system.Name} must sit in exactly one explicit group");
+                Assert.IsNotEmpty(
+                    type.GetCustomAttributes(typeof(DisableAutoCreationAttribute), false),
+                    $"{type.Name} must be [DisableAutoCreation] and created by DotsViewBootstrap");
+            }
+        }
+
+        [Test]
+        public void Groups_ArePublic_AndSystems_AreNot()
+        {
+            // The group tree is the ordering contract; individual system names are internal detail.
+            foreach (var group in PackageGroups)
+            {
+                Assert.IsTrue(group.IsPublic, $"{group.Name} is part of the package's public ordering surface");
+            }
+
+            foreach (var system in PackageSystems)
+            {
+                Assert.IsFalse(system.IsPublic, $"{system.Name} must not be an accidental API promise");
             }
         }
     }

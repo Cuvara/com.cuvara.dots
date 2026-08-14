@@ -24,6 +24,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve or respawn. The package has no chunk→entity ownership model, so callers must despawn the
   entities before releasing the chunk.
 
+## [0.4.0] - 2026-08-14
+
+### Added
+
+- **The package's full system group tree**, all positions fixed now so a consumer's `[UpdateAfter]`
+  resolves today and does not change meaning as systems land:
+  `NetcodeSystemGroup` → `ProvisioningSystemGroup` in `InitializationSystemGroup`;
+  `GameplaySystemGroup` (`UpdateBefore(TransformSystemGroup)`) containing `MovementSystemGroup`,
+  `LifecycleSystemGroup` and `DotsEndSimulationCommandBufferSystem` (`OrderLast`);
+  `ViewSystemGroup` in `PresentationSystemGroup`. Groups other than the view group are empty in this
+  version.
+- `DotsEndSimulationCommandBufferSystem` — the package's own ECB, played back at the end of
+  `GameplaySystemGroup` and therefore *before* `TransformSystemGroup` and long before presentation.
+  Unity's `EndSimulationEntityCommandBufferSystem` plays back after the transform systems, which
+  would leave a window in which a view could be synced against an entity that died this frame.
+- `DotsViewBootstrap.InstallSystems(World)`, called by `Install`.
+
+### Changed
+
+- **Breaking: the view systems moved into `ViewSystemGroup` and became `internal`.** The group tree
+  is the ordering contract; a public system name is an accidental API promise. `InternalsVisibleTo`
+  grants access to the two test assemblies only.
+- **Breaking: transform sync reads `LocalToWorld`, not `LocalTransform`.** `LocalTransform` is
+  relative to the parent, so a parented entity's view was placed at local coordinates — correct for
+  root entities and wrong for everything else. `LocalToWorld` is what `TransformSystemGroup` computed
+  earlier in the same frame and is right in both cases. Uniform scale is recovered as the length of
+  the matrix's first basis vector; non-uniform and sheared transforms are not represented.
+- **Breaking: every package system and group is `[DisableAutoCreation]`** and created explicitly by
+  `DotsViewBootstrap`. Unity's default bootstrap creates every non-disabled system in *every* world,
+  so a multi-world setup would have had two view groups driving one `EntityViewRegistry` and
+  double-spawning every entity.
+- Spawn now runs before despawn (was despawn-first in 0.2.0), matching the agreed tree.
+- Group names dropped their `Cuvara` prefix — `Cuvara.DOTS.*` already scopes them. `Dots` is kept on
+  the ECB system precisely so it cannot be mistaken for Unity's.
+
+### Resolved
+
+- **The open question about optional asmdef references is answered: Unity drops a name-based
+  reference to an assembly that does not exist.** Verified locally rather than assumed — four
+  installed `UniT.*.DI` asmdefs in the consuming project reference `"Zenject"`, `com.svermeulen.extenject`
+  is not in the project, and it compiles. Those assemblies are not even excluded by `defineConstraints`,
+  so this covers the stronger case. `Cuvara.DOTS.GameFoundation`'s references to `UniT.*` / `UniTask` /
+  `VContainer` and `Cuvara.DOTS.VContainer`'s reference to `Cuvara.DOTS.GameLogic` are therefore safe
+  when those packages are absent, and the GUID-reference fallback is not needed.
+
+### Accepted limitations
+
+- **`OrderFirst` is not used where a sibling's `UpdateAfter` already encodes the same order.**
+  Entities sorts `OrderFirst` members into a separate batch and then drops ordering relations between
+  that batch and normal members, with only a warning — so the explicit relation is the one that holds.
+  Ordering is unchanged from the agreed tree; only the mechanism differs. `OrderLast` is kept on the
+  ECB system, which has no sibling relation to conflict with.
+- **No `FixedStepSimulationSystemGroup`.** The server is authoritative and the client integrates
+  nothing; a fixed 60 Hz group would re-time server-paced data for no determinism gain. It changes
+  when prediction lands, and the rate will derive from the server tick rate.
+- **Nothing has been compiled.** The `DotsEndSimulationCommandBufferSystem` singleton boilerplate is
+  the highest-risk item — it is unsafe code against an API whose exact shape varies by Entities version.
+
 ## [0.3.0] - 2026-08-14
 
 ### Added

@@ -46,22 +46,32 @@ namespace Cuvara.DOTS.Tests
         }
 
         /// <summary>
-        /// Drives the three systems in the order the group layout puts them: despawn, spawn, sync.
+        /// Drives the three systems in the order the group layout puts them: spawn, despawn, sync.
         /// Kept honest by the edit-mode attribute assertions in <c>ViewSystemGroupLayoutTests</c> —
         /// this harness bypasses the groups, so it cannot detect a wrong attribute on its own.
         /// </summary>
         private void Tick()
         {
-            _world.GetExistingSystem<EntityViewDespawnSystem>().Update(_world.Unmanaged);
             _world.GetExistingSystem<EntityViewSpawnSystem>().Update(_world.Unmanaged);
+            _world.GetExistingSystem<EntityViewDespawnSystem>().Update(_world.Unmanaged);
             _world.GetExistingSystem<EntityViewTransformSyncSystem>().Update(_world.Unmanaged);
         }
 
+        /// <summary>
+        /// Adds <see cref="LocalToWorld"/> explicitly as well as <see cref="LocalTransform"/>.
+        /// <c>LocalToWorld</c> is what the view systems read, and this harness never runs
+        /// <c>TransformSystemGroup</c>, so nothing would otherwise compute it — the test has to play
+        /// the part of the transform systems.
+        /// </summary>
         private Entity CreateRequest(string key, float3 position)
         {
             var entity = _entityManager.CreateEntity();
             _entityManager.AddComponentData(entity, new EntityViewRequest { ViewKey = key });
             _entityManager.AddComponentData(entity, LocalTransform.FromPosition(position));
+            _entityManager.AddComponentData(entity, new LocalToWorld
+            {
+                Value = float4x4.TRS(position, quaternion.identity, new float3(1f, 1f, 1f)),
+            });
             return entity;
         }
 
@@ -140,8 +150,10 @@ namespace Cuvara.DOTS.Tests
             var viewId = _entityManager.GetComponentData<EntityViewLink>(entity).ViewId;
             var view = _registry.Get(viewId);
 
-            _entityManager.SetComponentData(entity, LocalTransform.FromPositionRotationScale(
-                new float3(3f, 0.5f, -7f), quaternion.identity, 2f));
+            _entityManager.SetComponentData(entity, new LocalToWorld
+            {
+                Value = float4x4.TRS(new float3(3f, 0.5f, -7f), quaternion.identity, new float3(2f, 2f, 2f)),
+            });
 
             Tick();
 

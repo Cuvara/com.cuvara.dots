@@ -1,4 +1,5 @@
 using Unity.Collections;
+using Cuvara.DOTS.Groups;
 using Unity.Entities;
 
 namespace Cuvara.DOTS.Views
@@ -12,11 +13,10 @@ namespace Cuvara.DOTS.Views
     /// Removing the cleanup component is what actually frees the entity id; skip that and the
     /// world fills up with zombies.
     /// </remarks>
-    // First in the lifecycle group, before EntityViewSpawnSystem: recycling a dead entity's view
-    // before spawning this frame's new ones lets the pool hand the freed instance straight back
-    // instead of instantiating another. The reverse order works too, it just grows the pool.
-    [UpdateInGroup(typeof(CuvaraViewLifecycleGroup))]
-    public partial struct EntityViewDespawnSystem : ISystem
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ViewSystemGroup))]
+    [UpdateAfter(typeof(EntityViewSpawnSystem))]
+    internal partial struct EntityViewDespawnSystem : ISystem
     {
         private EntityQuery _destroyed;
 
