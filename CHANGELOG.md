@@ -91,7 +91,15 @@ specific claims a build has to settle:
   `Cuvara.DOTS.Netcode.dll` **disappears** under netcode 0.3.2 and **appears** under 0.4.0. If the
   expression syntax is wrong the assembly silently never compiles, which is this package's least
   favourite failure mode; a range literal (`[0.4.0,)`) is the fallback if the bare version does not
-  work.
+  work. The bare form is what 140 non-empty expressions across this project's own resolved packages
+  use — `com.unity.physics`, `com.unity.collections`, `com.cysharp.messagepipe` gating on VContainer
+  `1.14.0` — so it is the well-trodden shape, but it is still unrun here.
+
+  **Known edge, not a defect**: a bare version excludes that version's prereleases, because
+  `0.4.0-pre.1` sorts below `0.4.0` under semver. Unity's own packages work around it by writing the
+  predecessor (`9.9.9` for "10.0.0 or newer"). `com.cuvara.netcode` has only ever tagged plain
+  versions, so this does not bite today; if it ever ships an `0.4.0-pre`, the expression has to
+  become `0.3.99`.
 - `FixedString32Bytes` as an `IComponentData` field and its `CopyFromTruncated` overload.
 - `in`-parameter interface implementation (`TryResolve(in NetworkEntityDescriptor, out string)`)
   across the assembly boundary.
