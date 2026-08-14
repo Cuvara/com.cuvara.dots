@@ -66,7 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without its referencing entities being updated.
 - **Config lookup by name is linear** over the blob. A catalog holds tens of archetypes; resolve once
   at request time and carry the index rather than scanning per frame.
-- **Nothing here has been compiled or run.** I do not drive the Editor.
+- **A view key longer than 61 UTF-8 bytes is truncated, not rejected.** The record's key is a
+  `FixedString64Bytes`; truncating stops one over-long key from failing catalog construction for the
+  whole library. It warns by asset name, and a truncated key matches nothing in the pool, so the view
+  never spawns rather than spawning something wrong.
+- **Compiled once, with one error fixed** (`CopyFromTruncated` needs `using Unity.Collections;` —
+  fully-qualified type names do not bring an extension method into scope). Tests not yet run.
 
 ## [0.6.3] - 2026-08-14
 

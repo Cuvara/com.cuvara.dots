@@ -1,3 +1,4 @@
+using Unity.Collections;
 using UnityEngine;
 
 namespace Cuvara.DOTS.Configuration
@@ -68,13 +69,22 @@ namespace Cuvara.DOTS.Configuration
         /// Stable hash of the archetype name this config is registered under, so a runtime lookup by
         /// name needs no managed string.
         /// </param>
+        /// <remarks>
+        /// <b>A view key longer than 61 UTF-8 bytes is truncated, not rejected.</b> The record's key
+        /// is a <see cref="FixedString64Bytes"/>, and the choice is between truncating and throwing.
+        /// Truncating keeps one over-long key from taking down catalog construction — and with it the
+        /// whole session — for every other archetype in the library. It is loud about it: the warning
+        /// names the offending asset, and the truncated key will not match anything in the pool, so
+        /// the view simply never spawns rather than spawning something wrong.
+        /// </remarks>
         public ViewConfigRecord ToRecord(int nameHash)
         {
-            // CopyFromTruncated rather than the implicit string conversion: that one throws on a key
-            // longer than the buffer, and a 62-character asset key should degrade to a warning and a
-            // findable name, not to an exception thrown during catalog construction.
-            var key = default(Unity.Collections.FixedString64Bytes);
-            if (key.CopyFromTruncated(viewKey ?? string.Empty) != Unity.Collections.CopyError.None)
+            // CopyFromTruncated is an extension method in Unity.Collections (FixedStringAppendMethods),
+            // so the namespace has to be imported — fully-qualifying the types is not enough to bring
+            // an extension method into scope. The implicit string conversion is avoided because it
+            // throws on overflow; see the remarks for why truncation is the chosen behaviour.
+            var key = default(FixedString64Bytes);
+            if (key.CopyFromTruncated(viewKey ?? string.Empty) != CopyError.None)
             {
                 Debug.LogWarning(
                     $"[Cuvara.DOTS] ViewConfig '{name}' has a view key longer than 61 bytes; it was " +

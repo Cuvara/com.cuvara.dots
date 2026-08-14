@@ -23,9 +23,11 @@ namespace Cuvara.DOTS.Views
     /// </para>
     /// <para>
     /// The <see cref="ViewTransformOffset"/> is composed in here rather than applied on the managed
-    /// side: this is the Bursted half, and the managed drain should stay a flat write. The offset is
-    /// re-applied every frame because the sync overwrites the GameObject's transform every frame —
-    /// applying it once at spawn would last exactly one frame.
+    /// side: this is the Bursted half, and the managed drain should stay a flat write.
+    /// <b>Re-applying it every frame is required, not an optimisation.</b> This sync overwrites the
+    /// GameObject's position, rotation and scale on every frame, so an offset applied once at spawn
+    /// survives exactly one frame and is then silently erased — which a consumer reads as "offsets
+    /// don't work", not as a lifetime bug.
     /// </para>
     /// </remarks>
     [BurstCompile]
