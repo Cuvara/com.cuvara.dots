@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Samples~/HybridViews` sample ("Hybrid Views"), declared in `package.json`.** A `MonoBehaviour`
+  bootstrap that installs the view layer into the default world, a `PrimitiveViewAssetProvider`
+  implementing `IViewAssetProvider` over `GameObject.CreatePrimitive` and a `Stack<GameObject>` pool
+  — so the sample runs on a bare install with only the four pinned dependencies and proves the
+  standalone claim — orbiting entities that make the transform sync visible, a mid-run despawn that
+  exercises the recycle path, and a narrated chunk warm/release in which two chunks share a key: the
+  shared key survives the first release and is torn down only on the second. A cold key is left
+  deferred on purpose so the "invisible for a few frames" behaviour can be seen rather than read
+  about. Sample `README.md` states which optional packages are *not* needed and why.
+- **Sample-revealed hazard, documented in the sample README:** releasing a chunk whose entities are
+  still alive destroys those views through `IViewAssetProvider.Release` while the
+  `EntityViewRegistry` keeps their handles and the entities keep an `EntityViewLink` that will never
+  resolve or respawn. The package has no chunk→entity ownership model, so callers must despawn the
+  entities before releasing the chunk.
+
 ## [0.3.0] - 2026-08-14
 
 ### Added
