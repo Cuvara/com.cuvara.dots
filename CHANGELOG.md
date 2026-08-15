@@ -40,6 +40,28 @@ never populates it leaves the constructed fallback standing rather than collapsi
 - CI's netcode row installs **v0.9.1** (was 0.6.2). The gate was sound — the `versionDefines`
   expression is `>=` — but the row was validating against an older netcode than the project runs.
 
+### Fixed — three `versionDefines` minimums that were understated
+
+Found by auditing every pin after the stale `sgl` one, rather than by anything failing.
+
+`Cuvara.DOTS.Netcode.Prediction`, its tests and the sample declared `com.cuvara.netcode >= 0.6.0`
+(the sample, `0.6.2`) — while now calling `SetServerSpeed` and `EffectiveSpeed`, **which arrived in
+0.8.0**. On netcode 0.6.x the define would fire, the assemblies would compile, and they would fail
+with `CS1061`. That is **broken, not absent** — the exact inversion of the property those constraints
+exist to guarantee, introduced by this release's own fix. All three now say `0.8.0`.
+
+The adapter and its tests stay at `0.4.0`: they call nothing newer, and a minimum should be the
+version an assembly actually needs rather than the newest one available.
+
+### Fixed — the all-zero diagnostic
+
+When **no** result XML is produced, every floor reported `actual 0`, which reads exactly like every
+assembly vanishing. The real cause is almost always one compile error: a single test assembly that
+fails to build collapses the whole EditMode run. The 0.13.0 entry predicted this trap and it then
+cost someone twenty minutes for real, so the script now says so explicitly before printing any floor,
+and points at version pins as well as `defineConstraints` — a package pinned behind what another
+package requires fails inside *that package's* source, not in ours.
+
 ### Tests
 
 16 in `Tests/Editor.Prediction/` (was 14). Two new, and they exist because nothing else can fail when
