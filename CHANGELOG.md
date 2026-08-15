@@ -5,6 +5,61 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-08-15
+
+**The measurement contradicted the change, so the change moved.** 0.17.0 scheduled five simulation
+jobs with `ScheduleParallel` unconditionally. Measured on 4 cores, median of 41 interleaved pairs:
+
+```
+                   64      256     1024     4096    16384    65536
+  SpinJob        0.40x    0.41x    0.54x    0.90x    1.63x    1.69x
+  MoveBounceJob  0.73x    0.79x    0.91x    0.41x    0.98x    0.88x
+  HealthDeathJob 0.67x    0.58x    0.73x    0.88x    0.45x    0.96x
+  TimeToLiveJob  0.60x    0.46x    0.39x    0.55x    0.59x    0.88x
+```
+
+**Below a few thousand entities, every job is slower scheduled than run**, and three of the four
+never overtook their serial form at any count tested. Scheduling overhead is fixed; the work is not.
+
+That is not academic here: this package's entity count is bounded by the server's area of interest —
+tens to low hundreds — so shipping unconditional `ScheduleParallel` would have made the common case
+worse in exchange for a win nobody in this project reaches. It is the spatial-index mistake with
+different ceremony.
+
+### Changed — the schedule is chosen from the measurement
+
+Every simulation system is still an `IJobEntity`. Each now picks its schedule per update:
+
+```csharp
+state.Dependency = _query.CalculateEntityCount() >= ParallelScheduling.MinimumEntities
+    ? job.ScheduleParallel(state.Dependency)
+    : job.Schedule(state.Dependency);
+```
+
+`ParallelScheduling.MinimumEntities` is **16,384** — `SpinJob`'s measured crossover, and explicitly
+nothing more. The other three have unknown, certainly higher thresholds; one constant is a
+deliberate simplification documented as a floor against the measured pessimisation, not a per-system
+tuning. The crossover moves with core count, so this is a compile-time approximation of a runtime
+property, chosen conservatively: serial slightly past the true crossover costs a little throughput,
+parallel below it costs on every frame at the counts this package actually runs.
+
+### One benchmark row is not credible, and says so
+
+`MoveTowardJob` reports ~585 ns/entity at 1,024, 4,096 and 16,384 and then **10.1** at 65,536 — a
+58× drop no scheduling effect produces. That row is left in place with a comment rather than deleted:
+a visibly broken measurement is more useful than a missing one, and the job's schedule is driven by
+the shared threshold rather than by that number. It needs re-measuring on real hardware before
+anyone trusts a `MoveToward` figure.
+
+`SpinJob`, `HealthDeathJob` and `MoveBounceJob` all show flat ns/entity across the top three sizes,
+which is the internal consistency check that makes their rows usable.
+
+### Unverified
+
+The threshold is one machine's number, on four cores, from a shared runner. The **ratio** is credible
+after interleaving; the absolute crossover is not portable. A filtered PlayMode run on the target
+machine would give a real value, and is the one thing that would justify changing the constant.
+
 ## [0.18.0] - 2026-08-15
 
 Completes the parallelism bar: every core system now either runs as a parallel job or carries a
