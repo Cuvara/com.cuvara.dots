@@ -360,11 +360,20 @@ namespace Cuvara.DOTS.Tests.Prediction
             var predictor = Predictor();
             DotsPredictionBootstrap.Install(_world, predictor, _worldState);
             SpawnLocal();
+
+            // One snapshot first, and this is a correction to the first version of this test rather
+            // than a weakening of it. Advancing from a cold start moves nothing: the predictor has
+            // no baseline to extrapolate from until a reconcile has happened, so the original
+            // version asserted behaviour the predictor does not have and failed for that reason
+            // rather than for the defect it targets. Runtime always has a snapshot first — the
+            // entity only exists because one arrived — so a baseline is the honest precondition.
+            ApplyServerSnapshot("uuid-me", 0f, 0f, speed: 5f, tick: 1);
             Tick(0.016f);
 
             var entity = Local();
-            predictor.RecordInput(1, 1f, 0f);
+            predictor.RecordInput(2, 1f, 0f);
 
+            // From here: frames only. No snapshot, no ack, nothing for the drain to apply.
             var start = _entityManager.GetComponentData<LocalTransform>(entity).Position;
             for (var frame = 0; frame < 30; frame++) Tick(0.016f);
             var end = _entityManager.GetComponentData<LocalTransform>(entity).Position;
@@ -385,7 +394,10 @@ namespace Cuvara.DOTS.Tests.Prediction
             SpawnLocal();
             Tick(0.016f);
 
-            predictor.RecordInput(1, 1f, 0f);
+            ApplyServerSnapshot("uuid-me", 0f, 0f, speed: 5f, tick: 1);
+            Tick(0.016f);
+
+            predictor.RecordInput(2, 1f, 0f);
             var before = predictor.Position;
             for (var frame = 0; frame < 30; frame++) Tick(0f);
 

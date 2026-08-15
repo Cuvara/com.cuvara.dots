@@ -24,8 +24,14 @@ it:
 - **`PredictedTransform_IsRewrittenEveryFrame_EvenWithNoSnapshot`** — clobbers the transform with a
   sentinel, runs one frame delivering **no** snapshot, asserts the sentinel is gone. This is the
   defect one layer along: advancing every frame is still invisible if the *write* is snapshot-driven.
-- **`PredictedPosition_AdvancesBetweenSnapshots`** — held input, 30 frames, deliberately no snapshot,
-  asserts the position moved.
+- **`PredictedPosition_AdvancesBetweenSnapshots`** — one snapshot to establish a baseline, then held
+  input and 30 frames with **no further snapshot**, asserting the position moved.
+
+  The first version of this test delivered no snapshot at all and **failed**: advancing from a cold
+  start moves nothing, because the predictor has no baseline to extrapolate from until a reconcile
+  has happened. That was the test asserting behaviour the predictor does not have, not a defect —
+  and the fixture was corrected rather than the assertion weakened, because runtime always has a
+  snapshot first: the entity only exists because one arrived.
 - **`ZeroDeltaTime_DoesNotAdvance_SoTheTestsAboveMeasureSomething`** — guards the harness. `Advance(0)`
   early-returns, so a future change dropping the clock would make the other two pass vacuously.
 
