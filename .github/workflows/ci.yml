@@ -207,7 +207,7 @@ jobs:
   # commit hash", which is the row doing its job.
   # ---------------------------------------------------------------------------
   test-with-netcode:
-    name: Unity Tests (netcode 0.6.2)
+    name: Unity Tests (netcode 0.9.1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -250,7 +250,7 @@ jobs:
           {
             "dependencies": {
               "com.cuvara.dots": "file:../package",
-              "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.6.2",
+              "com.cuvara.netcode": "https://github.com/Cuvara/Netcode.git#v0.9.1",
               "com.unity.entities": "1.4.8",
               "com.unity.burst": "1.8.30",
               "com.unity.collections": "2.6.8",
@@ -295,7 +295,7 @@ jobs:
           unityVersion: 6000.3.9f1
           testMode: all
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          checkName: Test Results (netcode 0.6.2)
+          checkName: Test Results (netcode 0.9.1)
           artifactsPath: artifacts
 
       - name: Samples must compile
@@ -333,7 +333,7 @@ jobs:
             'Cuvara.DOTS.Tests.Runtime>=23' \
             'Cuvara.DOTS.Tests.GameLogic>=41' \
             'Cuvara.DOTS.Tests.Netcode>=47' \
-            'Cuvara.DOTS.Tests.Prediction>=14'
+            'Cuvara.DOTS.Tests.Prediction>=16'
 
       - uses: actions/upload-artifact@v4
         if: always()
