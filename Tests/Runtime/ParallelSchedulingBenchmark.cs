@@ -1,6 +1,7 @@
 using System.Text;
 using Cuvara.DOTS.Simulation;
 using NUnit.Framework;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -210,6 +211,12 @@ namespace Cuvara.DOTS.Tests
             var report = new StringBuilder();
             report.AppendLine($"[benchmark] {name} — ms per invocation, {Iterations} iterations after {Warmup} warmup");
             report.AppendLine($"[benchmark] processors reported by the runtime: {SystemInfo.processorCount}");
+            // Burst has no public per-job "was this compiled" query, so the global flag plus the
+            // per-entity cost is the best evidence available. It matters: with Burst off, this
+            // measures IL against IL and the ratio is still meaningful, but the absolute numbers
+            // are ~100x the shipping ones and must not be quoted as such.
+            report.AppendLine($"[benchmark] BurstCompiler.IsEnabled: {BurstCompiler.IsEnabled}");
+            report.AppendLine($"[benchmark] (no public API reports per-job compilation; ns/entity below is the cross-check)");
             report.AppendLine("[benchmark]   entities |   Run() |  Parallel |  speedup");
 
             var crossover = -1;
@@ -219,7 +226,13 @@ namespace Cuvara.DOTS.Tests
                 var speedup = parallel > 0d ? single / parallel : 0d;
                 if (crossover < 0 && speedup > 1d) crossover = count;
 
-                report.AppendLine($"[benchmark] {count,10} | {single,7:F4} | {parallel,9:F4} | {speedup,7:F2}x");
+                // ns per entity makes a Burst fallback visible: a trivial job that costs ~1us per
+                // entity is not running compiled code, whatever the attribute says.
+                var singleNs = single * 1_000_000d / count;
+                var parallelNs = parallel * 1_000_000d / count;
+                report.AppendLine(
+                    $"[benchmark] {count,10} | {single,7:F4} | {parallel,9:F4} | {speedup,7:F2}x" +
+                    $"   ({singleNs,7:F1} / {parallelNs,7:F1} ns per entity)");
             }
 
             report.AppendLine(crossover < 0
