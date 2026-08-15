@@ -150,6 +150,62 @@ namespace Cuvara.DOTS.Tests
         private World _world;
         private EntityManager _entityManager;
 
+        /// <summary>
+        /// Refuses to measure anything unless Burst is actually compiling.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A table printed under a <c>burst=False</c> line is a quotable-looking number that is
+        /// wrong, and that is the same shape as a gate reporting green over zero tests.</b> It
+        /// happened: a 12-core run produced a clean six-row table at 535 ns/entity for a
+        /// <c>RotateY</c> — the managed path — with the disabled flag one line above it, and it was
+        /// nearly read past. So this skips the test rather than printing anything.
+        /// </para>
+        /// <para>
+        /// <b>Why Burst may be off, from its own source.</b> <c>BurstCompilerOptions</c>'s static
+        /// constructor sets <c>ForceDisableBurstCompilation</c> for exactly four reasons: the
+        /// <c>--burst-disable-compilation</c> command-line argument; a non-empty
+        /// <c>UNITY_BURST_DISABLE_COMPILATION</c> environment variable; <c>ENABLE_CORECLR</c> in the
+        /// Editor; and <c>CheckIsSecondaryUnityProcess()</c>, which includes
+        /// <c>AssetDatabase.IsAssetImportWorkerProcess()</c>. Separately the Editor's
+        /// <i>Jobs &gt; Burst &gt; Enable Compilation</i> menu toggle persists across sessions, and a
+        /// batchmode run inherits whatever it was last left at — the likeliest cause when none of
+        /// the four applies, and one no command-line flag overrides.
+        /// </para>
+        /// <para>
+        /// So this <b>tries to turn it on</b> before giving up. The setter coerces back to false when
+        /// <c>ForceDisableBurstCompilation</c> is set, which is what separates "the toggle was off"
+        /// (fixed here) from "this process cannot Burst at all" (not fixable here, and the message
+        /// says which).
+        /// </para>
+        /// <para>
+        /// Synchronous compilation is requested too: Burst compiles asynchronously by default, so the
+        /// first calls run the managed path and a warmup loop would quietly measure it.
+        /// </para>
+        /// </remarks>
+        private static void RequireBurst()
+        {
+            if (!BurstCompiler.IsEnabled)
+            {
+                BurstCompiler.Options.EnableBurstCompilation = true;
+            }
+
+            if (!BurstCompiler.IsEnabled)
+            {
+                Assert.Ignore(
+                    "Burst is not compiling, so every timing here would measure the managed path — " +
+                    "535 ns/entity for a RotateY rather than ~18. No table is printed, on purpose. " +
+                    "Setting BurstCompiler.Options.EnableBurstCompilation did not take, so " +
+                    "ForceDisableBurstCompilation is set: check --burst-disable-compilation, a " +
+                    "UNITY_BURST_DISABLE_COMPILATION env var, ENABLE_CORECLR, or a secondary Unity " +
+                    "process (AssetDatabase.IsAssetImportWorkerProcess). If none apply, the Editor's " +
+                    "Jobs > Burst > Enable Compilation toggle is off and persists across sessions.");
+            }
+
+            // Async is the default, so the first calls run managed and the warmup would measure that.
+            BurstCompiler.Options.EnableBurstCompileSynchronously = true;
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -217,6 +273,13 @@ namespace Cuvara.DOTS.Tests
         /// reproduces about one run in ten, and these systems produce positions a predictor may later
         /// reconcile against. Bit-identical rather than approximately equal, because "close enough"
         /// is how a drift bug survives its own test.
+        /// </para>
+        /// <para>
+        /// <b>Deliberately not guarded on Burst.</b> Determinism is a property of the schedule, not
+        /// of the compiler — so this is exactly the assertion still worth running when Burst is off,
+        /// and it is the one that ran and passed on the 12-core machine where every timing was
+        /// invalid.
+        /// </para>
         /// </remarks>
         [Test]
         public void BothSchedules_ProduceBitIdenticalResults()
@@ -256,6 +319,9 @@ namespace Cuvara.DOTS.Tests
             where TRun : unmanaged, ISystem
             where TParallel : unmanaged, ISystem
         {
+            // Before anything is populated or timed: no Burst, no table.
+            RequireBurst();
+
             _world.GetOrCreateSystem<TRun>();
             _world.GetOrCreateSystem<TParallel>();
 

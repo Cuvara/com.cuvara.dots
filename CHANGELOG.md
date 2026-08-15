@@ -5,6 +5,61 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-08-15
+
+### The benchmark refuses to print a table when Burst is off
+
+A 12-core run on the target machine produced a clean six-row table — and `BurstCompiler.IsEnabled:
+False` one line above it. 535 ns/entity for a `RotateY` is the managed path; the `ns/entity` column
+caught it, and the table was still nearly read as real. **A quotable-looking table under a
+`burst=False` line is the same shape as a gate reporting green over zero tests**, so the guard now
+skips the test and prints nothing instead.
+
+It **tries to fix the condition before giving up**: `BurstCompiler.Options.EnableBurstCompilation =
+true`, then re-checks. The setter coerces back to false when `ForceDisableBurstCompilation` is set,
+which is exactly what separates the two cases, and the skip message says which one you are in.
+
+### Why Burst was off, read out of Burst's own source
+
+`BurstCompilerOptions`' static constructor sets `ForceDisableBurstCompilation` for **four** reasons
+and no others:
+
+| Cause | Overridable from script? |
+|---|---|
+| `--burst-disable-compilation` command-line argument | no |
+| non-empty `UNITY_BURST_DISABLE_COMPILATION` env var | no |
+| `ENABLE_CORECLR` in the Editor | no |
+| `CheckIsSecondaryUnityProcess()` — includes `AssetDatabase.IsAssetImportWorkerProcess()` | no |
+
+None of those was present on the machine that ran it. The remaining cause is the Editor's own
+**Jobs > Burst > Enable Compilation** menu toggle, which is per-machine, **persists across sessions,
+and has no command-line override** — a batchmode run silently inherits whatever it was last left at.
+
+**So the honest position: this measurement needs the toggle on, and that is a human action in the
+Editor.** The guard now makes a run with it off produce a skip and an explanation rather than a
+table, so the next person does not rediscover this by nearly quoting a wrong number.
+
+Synchronous compilation is also requested (`EnableBurstCompileSynchronously`), because Burst compiles
+asynchronously by default and the warmup loop would otherwise measure the managed path on the way in.
+
+### Not guarded, deliberately
+
+`BothSchedules_ProduceBitIdenticalResults` runs regardless. Determinism is a property of the schedule,
+not of the compiler — it is the assertion still worth having when Burst is off, and it is the one that
+ran and passed on the machine where every timing was invalid.
+
+### The numbers that are sound, and the ones that are not
+
+From the 12-core run: **the speedup ratios are valid** — both arms ran under identical conditions, so
+`SpinJob` at 5.98× and `MoveBounceJob` at 6.47× at 65,536 are real parallel wins, plateauing near 6 on
+12 cores as memory bandwidth and scheduling begin to bind.
+
+**The crossovers from that run are not, and must not go into docs**: 256 and 1,024 entities were
+measured on the managed path, where the serial arm is ~30× slower than it will be with Burst on. Burst
+speeds the serial arm far more than it speeds scheduling overhead, so **the real crossover is
+substantially higher**. `ParallelScheduling.MinimumEntities` stays at 16,384 — still the CI figure, and
+still explicitly provisional — rather than being lowered to a number measured without the compiler.
+
 ## [0.19.0] - 2026-08-15
 
 **The measurement contradicted the change, so the change moved.** 0.17.0 scheduled five simulation
