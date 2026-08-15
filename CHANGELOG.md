@@ -45,6 +45,15 @@ drove the system by delivering state; none could have caught this before `Tick` 
 
 - CI installs `com.cuvara.netcode` **v0.15.0**, and the three `versionDefines` minimums move to match.
   The adapter and its tests stay at `0.4.0`: they call nothing newer.
+- CI's `com.rpgmmo.shared-gamelogic` pin moves to **`sgl-v0.1.8`**. netcode 0.15.0 does not compile
+  against 0.1.7 — `GameConstants.MaxBankedMovementTicks` does not exist there — which is the **second
+  time** a netcode bump has silently required an sgl bump, and the second time the failure surfaced as
+  a `CS0117` inside *netcode's own source* rather than in this package. The CI header already says the
+  pins are part of the configuration under test and must move together; this is what it looks like
+  when they do not.
+
+  Incidentally this is direct evidence the multi-rate work is real and landed in the shared library:
+  `MaxBankedMovementTicks` is a 60 Hz-input concept that did not exist at 0.1.7.
 
 ### Unverified
 
