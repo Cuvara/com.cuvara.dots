@@ -5,6 +5,69 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-08-15
+
+Completes the parallelism bar: every core system now either runs as a parallel job or carries a
+written, evidenced reason it does not, and the measurement is trustworthy enough to quote a ratio.
+
+### Corrected — a cause I asserted without checking
+
+0.17.0 blamed the 90x run-to-run timing variance on "three Unity containers sharing one host". That
+is wrong: **each GitHub Actions job runs on its own runner VM.** The variance is ordinary
+shared-cloud noise, and the fix is statistical rather than structural. Recording the correction
+because the original claim was exactly the kind of confident wrong diagnosis this package keeps
+paying for.
+
+### The benchmark can now be trusted for a ratio
+
+Timing all serial iterations and then all parallel ones lets a stall skew one column — which is how
+the same case reported 0.88 ms in one run and 80.07 ms in the next. Now:
+
+- **arms interleaved A/B/A/B**, so a stall lands in both halves of a pair;
+- **median of 41 pairs**, which discards the pairs that were hit;
+- **all five parallelised jobs measured**, not two standing in for five;
+- the structural pair creates and plays back its command buffer **inside** the measured region,
+  because recording through a `ParallelWriter` is part of what the parallel schedule costs and
+  excluding it would flatter the result;
+- `Health` and `TimeToLive` seeded so nothing is destroyed — the realistic steady state is a scan
+  over live entities, and a benchmark that deletes its own working set measures a shrinking one.
+
+Absolute timings on a shared runner are still not quotable. The **ratio and the crossover** are.
+
+### The complete system inventory, which is the actual pass criterion
+
+| System | Schedule | Why |
+|---|---|---|
+| `SpinSystem` | `ScheduleParallel` | |
+| `MoveBounceSystem` | `ScheduleParallel` | |
+| `MoveTowardSystem` | `ScheduleParallel` | |
+| `HealthDeathSystem` | `ScheduleParallel` + `ParallelWriter` | |
+| `TimeToLiveSystem` | `ScheduleParallel` + `ParallelWriter` | |
+| `EntityViewTransformSyncSystem` | **already parallel** | Bursted `IJobEntity` collects blittable samples; a flat main-thread loop applies them, because `UnityEngine.Transform` is main-thread-only |
+| `EntityViewSpawnSystem` | main thread | `EntityViewRegistry.Spawn` instantiates a pooled `GameObject`; Unity's object API is main-thread-only by contract, not by convention |
+| `EntityViewDespawnSystem` | main thread | same managed pool call, plus a structural removal |
+| `NetworkViewCommandSystem` | main thread | the drain is ordered by definition, and two `SetState`s for one id can share a drain where "last wins" — splitting races two workers on one component, and de-duplicating first is a serial pass over the same data |
+| `LocalPredictionSystem` | main thread, **must stay** | one predictor with an order-dependent input ring buffer; `Reconcile` replays the whole backlog in sequence. Parallelising yields a plausible wrong position rather than a crash, for nothing, since exactly one entity is predicted |
+
+Five parallel, one already parallel, four with reasons. No entry is "did not get to it".
+
+### The hybrid half, audited rather than assumed
+
+- **Zero `MonoBehaviour` in shipping code.** `grep -rln ": MonoBehaviour" Runtime*` returns nothing;
+  the only ones in the repository are in `Samples~`, which is presentation by definition.
+- **No simulation state outside ECS.** `EntityViewRegistry` is a plain `sealed class` holding an
+  id→`GameObject` map — a presentation-side lookup, not simulation state.
+- **The seam is one-directional**: entities carry `EntityViewLink` (an `int` handle, blittable,
+  readable from a job); nothing reads a `GameObject` back into simulation. The handle exists
+  precisely so the component stays unmanaged.
+
+### Unverified
+
+**The crossover numbers still come from a shared runner.** The interleaved median makes the ratio
+credible; it does not make the absolutes real, and the crossover point moves with core count. One
+filtered PlayMode run on the target machine settles it — that remains the only way to get figures
+worth acting on.
+
 ## [0.17.0] - 2026-08-15
 
 ### The core is actually multithreaded now
