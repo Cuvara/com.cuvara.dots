@@ -5,6 +5,74 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-08-15
+
+### The core is actually multithreaded now
+
+Every pure simulation system was `[BurstCompile]` `ISystem` with a `SystemAPI.Query` loop —
+**optimised machine code on exactly one thread**. There was not a single `IJobEntity` or
+`ScheduleParallel` in the package. The foundation was right; the parallelism was never built on it.
+
+Five systems converted to `IJobEntity` scheduled with `ScheduleParallel`:
+
+| System | Job | Structural |
+|---|---|---|
+| `SpinSystem` | `SpinJob` | no |
+| `MoveBounceSystem` | `MoveBounceJob` | no |
+| `MoveTowardSystem` | `MoveTowardJob` | no |
+| `HealthDeathSystem` | `HealthDeathJob` | `EntityCommandBuffer.ParallelWriter` |
+| `TimeToLiveSystem` | `TimeToLiveJob` | `EntityCommandBuffer.ParallelWriter` |
+
+`state.Dependency` is threaded in and out rather than completed inside each system: completing there
+would serialise the job against every other system in the frame and throw away most of the benefit.
+
+**The sort key is `[ChunkIndexInQuery]`, and that is a determinism decision, not a style one.**
+Command-buffer playback replays in sort-key order. Worker threads finish in whatever order the
+scheduler gives them, so without a stable key the playback order — and the outcome — would vary run
+to run on identical input.
+
+### Two systems deliberately left single-threaded
+
+Examined, not skipped, and the reasoning is in the code where the next person will look.
+
+**`NetworkViewCommandSystem`** — the queue drain is ordered by definition (spawn precedes its first
+state, despawn follows its last), so a parallel drain would have to rebuild the FIFO with a sequence
+number. Worse, two `SetState`s for one id can arrive in a single drain and the correct result is
+"last wins" — splitting the apply would race two workers on one component, and de-duplicating first
+is a serial pass over the same data the serial apply already walks. The work is AOI-bounded anyway:
+tens of commands per frame, not thousands.
+
+**`LocalPredictionSystem`** — one predictor instance owns an input ring buffer, and `RecordInput`,
+`Reconcile`, `Advance` are order-dependent against it; `Reconcile` replays the whole unacknowledged
+backlog in sequence. Parallelising would not crash, it would produce a plausible wrong position —
+the failure shape this project has paid for most — in exchange for nothing, since exactly one entity
+is ever predicted.
+
+### Measured, not asserted
+
+`ParallelSchedulingBenchmark` (PlayMode) times **the same job two ways** — `Run()` versus
+`ScheduleParallel().Complete()` — across 64 → 65,536 entities and prints a table with the crossover
+point. Same Bursted code over the same chunks both ways, so what is measured is worker parallelism
+minus scheduling overhead, and nothing else. Comparing a job against a hand-written loop would fold
+in codegen differences and measure the wrong thing.
+
+**No timing is asserted.** A performance assertion on a shared CI runner is a flaky test, and a flaky
+test inside a gate is worse than no measurement — it teaches people to re-run until green. The
+numbers are logged for reading; the assertions are about correctness.
+
+`BothSchedules_ProduceBitIdenticalResults` is the one that had to be earned: identical input through
+both paths, **bit-identical** output, eight steps of integration. A parallel job whose result depends
+on iteration order is a bug that reproduces about one run in ten, and these systems produce positions
+a predictor may later reconcile against. "Approximately equal" is how a drift bug survives its own
+test.
+
+### Unverified
+
+The numbers in the PR come from a **CI runner capped at four cores**, which is not the target
+hardware. The useful output is the shape and the crossover, not the absolute figures — and the
+crossover moves with core count. Whether Burst actually compiled each new job, rather than silently
+rejecting it and falling back to IL, is checked in the same run; see the PR.
+
 ## [0.16.1] - 2026-08-15
 
 Two corrections that missed the 0.16.0 merge by minutes — the branch was merged while this commit
