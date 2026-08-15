@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using Cuvara.DOTS.Simulation;
 using NUnit.Framework;
@@ -7,6 +6,9 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
+// Aliased rather than importing System.Diagnostics: that namespace also has a Debug, and importing
+// it alongside UnityEngine makes every Debug.Log in this file CS0104-ambiguous.
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Cuvara.DOTS.Tests
 {
