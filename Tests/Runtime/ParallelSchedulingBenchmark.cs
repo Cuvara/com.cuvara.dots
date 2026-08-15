@@ -217,6 +217,13 @@ namespace Cuvara.DOTS.Tests
             // are ~100x the shipping ones and must not be quoted as such.
             report.AppendLine($"[benchmark] BurstCompiler.IsEnabled: {BurstCompiler.IsEnabled}");
             report.AppendLine($"[benchmark] (no public API reports per-job compilation; ns/entity below is the cross-check)");
+            // Read this before believing any row. This workflow runs three Unity containers at once,
+            // each requesting 4 CPUs from one host, so a benchmark here measures contention as much
+            // as parallelism. Two runs of this identical code produced 0.88 ms and 80.07 ms for the
+            // same 65536-entity case — 90x apart. Trust the ns/entity column as a sanity check and
+            // the crossover as a shape; do not quote a speedup from CI. Run it on real hardware.
+            report.AppendLine("[benchmark] WARNING: CI runs three Unity jobs concurrently on one host —");
+            report.AppendLine("[benchmark] these timings include contention. Numbers from CI are not quotable.");
             report.AppendLine("[benchmark]   entities |   Run() |  Parallel |  speedup");
 
             var crossover = -1;

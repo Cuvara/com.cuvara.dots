@@ -66,12 +66,39 @@ on iteration order is a bug that reproduces about one run in ten, and these syst
 a predictor may later reconcile against. "Approximately equal" is how a drift bug survives its own
 test.
 
+### Measured — and the measurement environment failed, which is itself the result
+
+**CI cannot measure this, and the benchmark proved it rather than papering over it.** Two runs of
+identical code, same commit, gave for the same 65,536-entity `SpinJob` case:
+
+```
+run 1:  Run() 0.88 ms   Parallel 0.57 ms    (13 ns/entity)
+run 2:  Run() 80.07 ms  Parallel 72.60 ms   (1221 ns/entity)
+```
+
+**90× apart.** The cause is in this workflow: it runs three Unity jobs concurrently, each requesting
+four CPUs from one host, so a benchmark measures contention as much as parallelism. `ns/entity` is
+the tell — a trivial `RotateY` costing a microsecond per entity is not measuring compute.
+
+So **no speedup figure from CI is quotable**, and none is quoted. What survives:
+
+- **The shape is consistent across both runs**: parallel loses at small counts and wins at large
+  ones, which is the crossover behaviour the design predicts. Run 1 put `SpinJob`'s crossover at
+  4,096 entities.
+- **`BurstCompiler.IsEnabled: True`** in the run, and Burst exposes no per-job "was this compiled"
+  query — so `ns/entity` is the only available cross-check, and it is reported for exactly that.
+- **The correctness assertion passed in every run**, and it is machine-independent:
+  `BothSchedules_ProduceBitIdenticalResults`, eight integration steps, bit-identical output.
+
+The benchmark now prints a warning saying its own numbers are not quotable from CI. **Running it on
+the real machine is one filtered PlayMode run** and is the only way to get figures worth acting on.
+
 ### Unverified
 
-The numbers in the PR come from a **CI runner capped at four cores**, which is not the target
-hardware. The useful output is the shape and the crossover, not the absolute figures — and the
-crossover moves with core count. Whether Burst actually compiled each new job, rather than silently
-rejecting it and falling back to IL, is checked in the same run; see the PR.
+Everything about performance. The conversion is correct — determinism asserted, both structural
+systems recording through a parallel writer with a stable sort key — but **whether it is faster on
+the target hardware is unmeasured**, and the CI numbers are evidence about the runner rather than
+about the code.
 
 ## [0.16.1] - 2026-08-15
 
