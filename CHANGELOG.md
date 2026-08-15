@@ -49,7 +49,15 @@ drove the system by delivering state; none could have caught this before `Tick` 
 
 ### Changed
 
-- CI installs `com.cuvara.netcode` **v0.15.0**, and the three `versionDefines` minimums move to match.
+- CI installs `com.cuvara.netcode` **v0.15.1**, and the three `versionDefines` minimums move to 0.15.0
+  (the version whose API they need; 0.15.1 is a packaging fix and adds no API).
+
+  **0.15.0 could not be used**: it shipped `Tests/Editor/HeldMovementParityTests.cs` with no `.meta`,
+  Unity logged an Error, and the test framework turned it into an `UnhandledLogMessageException` that
+  failed the whole run — with **137/137 EditMode and 29/29 PlayMode passing and not one failing
+  test**. Two defects stacked: the parity test never ran anywhere, and the Error failed every
+  consumer's suite. Fixed upstream in 0.15.1, and the meta gate this package already runs is now
+  ported to netcode so it cannot recur silently.
   The adapter and its tests stay at `0.4.0`: they call nothing newer.
 - CI's `com.rpgmmo.shared-gamelogic` pin moves to **`sgl-v0.1.8`**. netcode 0.15.0 does not compile
   against 0.1.7 — `GameConstants.MaxBankedMovementTicks` does not exist there — which is the **second
