@@ -5,6 +5,58 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-08-15
+
+### The 15 Hz-render defect: the DOTS path was already correct, and now proves it
+
+netcode's `WorldViewBinder` advanced prediction and updated the view **inside the snapshot loop**, so
+the avatar moved only when a snapshot arrived — at the world rate, however fast the client drew. Five
+releases of render smoothing were computed and discarded.
+
+**`LocalPredictionSystem` never had that shape.** It lives in `PredictionSystemGroup` →
+`NetcodeSystemGroup` → `InitializationSystemGroup`, so it runs **every frame**, and both
+`predictor.Advance(SystemAPI.Time.DeltaTime)` and the `LocalTransform`/`LocalToWorld` writes sit
+**outside** the `if (ackTick > _lastAckTick)` block that gates reconciliation.
+
+That was true by construction and untested, which is not the same as verified. Three tests now cover
+it:
+
+- **`PredictedTransform_IsRewrittenEveryFrame_EvenWithNoSnapshot`** — clobbers the transform with a
+  sentinel, runs one frame delivering **no** snapshot, asserts the sentinel is gone. This is the
+  defect one layer along: advancing every frame is still invisible if the *write* is snapshot-driven.
+- **`PredictedPosition_AdvancesBetweenSnapshots`** — held input, 30 frames, deliberately no snapshot,
+  asserts the position moved.
+- **`ZeroDeltaTime_DoesNotAdvance_SoTheTestsAboveMeasureSomething`** — guards the harness. `Advance(0)`
+  early-returns, so a future change dropping the clock would make the other two pass vacuously.
+
+### The frame loop is now modelled, which is why these tests can exist
+
+`Tick` takes a `deltaTime` and pushes it into the world via `SetTime`. **A bare `World` has no player
+loop**, so `SystemAPI.Time.DeltaTime` is zero and `Advance(0)` early-returns — every frame-rate
+assertion would have been vacuous.
+
+That is the same root cause as netcode's blind spot: its `WorldViewBinderTests` drove the binder
+entirely by feeding snapshots, so a position that moved *only* on snapshots was indistinguishable from
+a correct one. **The fixture could not express the failure** — the same shape as a CI gate that cannot
+go red, and as a smoothing fixture using one constant for two rates. Every existing test in this file
+drove the system by delivering state; none could have caught this before `Tick` took a time step.
+
+### Changed
+
+- CI installs `com.cuvara.netcode` **v0.15.0**, and the three `versionDefines` minimums move to match.
+  The adapter and its tests stay at `0.4.0`: they call nothing newer.
+
+### Unverified
+
+**Whether the user's stutter is gone is a measurement, not a claim made here.** Burstiness that reads
+the same with prediction on and off is not measuring prediction; after the fix, prediction-on should
+fall well below prediction-off. These tests prove the DOTS path advances and writes per frame. They do
+not prove the frame *looks* smooth, and this package still has no path that has run against a live
+server.
+
+The tick-rate divergence reported in 0.21.0 is untouched and still upstream: netcode v0.15.0's
+`JoinTokenResponse` carries no `TickRate` and `LocalMovePredictor` has no setter for it.
+
 ## [0.21.0] - 2026-08-15
 
 ### Per-system thresholds, from real numbers
