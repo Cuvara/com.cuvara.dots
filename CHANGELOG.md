@@ -5,6 +5,12 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-08-15
+
+Two corrections that missed the 0.16.0 merge by minutes — the branch was merged while this commit
+was still in flight, which orphaned it from CI and from the release. Content unchanged from what
+0.16.0 describes; this is the version that actually carries it.
+
 ## [0.16.0] - 2026-08-15
 
 ### Fixed — the prediction driver now feeds the server's speed
