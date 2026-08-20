@@ -5,6 +5,25 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-08-20
+
+### Fixed
+- **Two folder `.meta` files were truncated and had been repaired only in the client's vendored
+  copy.** `Runtime.Netcode.Prediction.meta` and `Tests/Editor.Prediction.meta` carried a `guid` and
+  then stopped — no trailing newline, no `folderAsset: yes`, no `DefaultImporter` block — which is
+  the shape of a meta written by hand, not one Unity generated. Every sibling folder meta in the
+  package has the full body.
+
+  Unity tolerates this: it fills the missing fields in on import, which is why nothing ever failed
+  and why the defect survived to be noticed only when the two copies were compared byte for byte.
+  The repaired versions have been sitting in `IndieRPGMMOAdventure`'s vendored copy — same GUIDs,
+  full body — since the package was first vendored, and never came back upstream.
+
+  The GUIDs are unchanged, so no asset reference moves. What this buys is not a behaviour fix but a
+  comparison that means something: with these repaired, upstream and the vendored copy are
+  byte-identical, and the client's drift check can assert plain equality instead of carrying an
+  allowlist entry for a difference nobody could explain.
+
 ## [0.23.0] - 2026-08-20
 
 ### Fixed
