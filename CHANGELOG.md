@@ -5,6 +5,26 @@ All notable changes to the Cuvara DOTS package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-08-20
+
+### Fixed
+- **`LocalPredictionSystem` never called `SeedBaseTick`, so netcode's #13 fix was inert on the DOTS
+  path — the only path the DOTS sample actually runs.** netcode v0.16.0 added
+  `LocalMovePredictor.SeedBaseTick(long serverTick)` to align the predictor's local tick counter
+  with the server's world tick, and wired its own `WorldViewBinder`. Its CHANGELOG states plainly
+  that a consumer binding views itself — a DOTS system reading `LocalMovePredictor.Position` into
+  `LocalTransform`, which is precisely this system — **must call it, or the feature is inert and
+  you keep the defect**. This system was that consumer and was not calling it.
+  Without the seed, `_baseTick` starts at zero while the server's tick is wherever that server
+  happens to be, so the two counters never share an epoch and every held-movement decision is made
+  against a phase that is wrong by a constant. Seeded first and only once per reconcile;
+  `SeedBaseTick` is idempotent by contract.
+
+### Changed
+- **CI's netcode pin moves `v0.15.1` → `v0.16.1`.** It had to: `SeedBaseTick` does not exist before
+  v0.16.0, so the fix above would not compile against the old pin. This is the coupling the CI
+  header already warns about — the pin and what depends on it move together.
+
 ## [0.22.0] - 2026-08-15
 
 ### The 15 Hz-render defect: the DOTS path was already correct, and now proves it
