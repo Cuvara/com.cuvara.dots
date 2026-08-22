@@ -5,6 +5,7 @@
         "Cuvara.DOTS.Runtime",
         "Cuvara.Netcode.Runtime",
         "Unity.Entities",
+        "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics",
         "Unity.Transforms"
