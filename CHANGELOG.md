@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-08-22
+
 ### Remote entities are now interpolated in ECS, by netcode's core rather than by a second copy of it
 
 Until this release the DOTS path had exactly one way to place a replicated entity: whatever position
