@@ -44,6 +44,13 @@ name: CI
 #   error CS0234: The type or namespace name 'Content' does not exist in the
 #                 namespace 'Shared.GameLogic'
 #
+# The job is named "netcode present" and NOT for the version it pins, because
+# branch protection requires checks BY NAME. It required "Unity Tests (netcode
+# 0.16.1)" until this commit, so bumping the pin renamed the job, the required
+# check never appeared, and main became unmergeable by anything -- a stricter
+# gate than intended and one that no PR could ever satisfy. A version-free name
+# means the next pin bump touches this file only.
+#
 # Both times the error was raised by netcode's own source, several files away
 # from the line that actually needed changing. Reading the failing FILE tells you
 # nothing; reading the PINS does. Note also that sgl-v0.2.0 shipped the Content
@@ -230,7 +237,7 @@ jobs:
   # commit hash", which is the row doing its job.
   # ---------------------------------------------------------------------------
   test-with-netcode:
-    name: Unity Tests (netcode 0.19.0)
+    name: Unity Tests (netcode present)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -318,7 +325,7 @@ jobs:
           unityVersion: 6000.3.9f1
           testMode: all
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          checkName: Test Results (netcode 0.19.0)
+          checkName: Test Results (netcode present)
           artifactsPath: artifacts
 
       - name: Samples must compile
